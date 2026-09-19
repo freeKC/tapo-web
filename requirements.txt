@@ -1,0 +1,13 @@
+anyio==4.15.1
+fastapi==0.141.1
+h11==0.16.0
+httptools==0.8.0
+pycryptodome==3.23.0
+pytapo==3.4.19
+python-dotenv==1.2.3
+python-kasa==0.10.2
+requests==2.34.2
+starlette==1.6.0
+uvicorn==0.53.0
+websockets==17.1
+pytest==9.1.1

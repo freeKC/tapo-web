@@ -1,0 +1,11 @@
+.env
+.venv/
+.mlvenv/
+ml/deepfaune/
+__pycache__/
+*.pyc
+hls/
+recordings/
+_spikes/
+.pytest_cache/
+logs/

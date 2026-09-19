@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tapo Web - Caméra</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ctext y='26' font-size='26'%3E%F0%9F%93%B9%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="/static/styles.css">
+<script src="/static/hls.min.js"></script>
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">📹 <span>Tapo&nbsp;Web</span></div>
+  <div class="camstatus" id="camstatus">
+    <span class="dot" id="statusdot"></span>
+    <span id="statustext">Recherche de la caméra…</span>
+    <span class="meta" id="statusmeta"></span>
+  </div>
+  <button class="btn ghost" id="btn-settings" title="Identifiants de la caméra">⚙</button>
+  <button class="btn ghost" id="btn-discover" title="Relocaliser la caméra">⟳ Rafraîchir</button>
+</header>
+
+<nav class="tabs">
+  <button class="tab active" data-tab="live">Live</button>
+  <button class="tab" data-tab="library">Bibliothèque</button>
+  <button class="tab" data-tab="sd">Carte SD</button>
+  <button class="tab" data-tab="animals">🐾 Animaux</button>
+</nav>
+
+<main>
+  <!-- LIVE -->
+  <section class="panel active" id="tab-live">
+    <div class="live-grid">
+      <div class="videowrap">
+        <video id="live" playsinline controls muted></video>
+        <div class="video-overlay" id="live-overlay">
+          <button class="bigplay" id="btn-play">▶ Démarrer le live</button>
+        </div>
+        <div class="rec-badge" id="rec-badge" hidden>● REC</div>
+      </div>
+
+      <aside class="controls">
+        <div class="ctl-group">
+          <label>Flux</label>
+          <div class="segmented" id="stream-seg">
+            <button data-stream="hd" class="active">HD</button>
+            <button data-stream="sd">SD</button>
+          </div>
+        </div>
+
+        <div class="ctl-group">
+          <label>Live</label>
+          <div class="row">
+            <button class="btn" id="btn-live-start">▶ Live</button>
+            <button class="btn ghost" id="btn-live-stop">■ Stop</button>
+          </div>
+        </div>
+
+        <div class="ctl-group">
+          <label>Capture</label>
+          <button class="btn" id="btn-snap">📸 Photo instantanée</button>
+        </div>
+
+        <div class="ctl-group">
+          <label>Enregistrement</label>
+          <div class="row">
+            <button class="btn" id="btn-rec-start">⏺ Enregistrer</button>
+            <button class="btn ghost" id="btn-rec-stop" disabled>⏹ Arrêter</button>
+          </div>
+          <div class="hint" id="rec-hint">Capture le flux vers un MP4 local.</div>
+        </div>
+
+        <div class="ctl-group">
+          <label>DVR continu</label>
+          <label class="switch">
+            <input type="checkbox" id="cont-toggle">
+            <span class="slider"></span>
+            <span class="switch-label" id="cont-label">Désactivé</span>
+          </label>
+          <div class="hint">Archive en continu par segments de 10&nbsp;min.</div>
+        </div>
+
+        <div class="ctl-group" id="ptz-group" hidden>
+          <label>Orientation (PTZ)</label>
+          <div class="ptzpad">
+            <button data-dir="upleft">↖</button>
+            <button data-dir="up">↑</button>
+            <button data-dir="upright">↗</button>
+            <button data-dir="left">←</button>
+            <button class="ptz-center" disabled>◉</button>
+            <button data-dir="right">→</button>
+            <button data-dir="downleft">↙</button>
+            <button data-dir="down">↓</button>
+            <button data-dir="downright">↘</button>
+          </div>
+        </div>
+      </aside>
+    </div>
+  </section>
+
+  <!-- LIBRARY -->
+  <section class="panel" id="tab-library">
+    <div class="toolbar">
+      <h2>Enregistrements locaux</h2>
+      <button class="btn ghost" id="btn-lib-refresh">⟳ Rafraîchir</button>
+    </div>
+    <div class="grid" id="lib-grid"></div>
+    <div class="empty" id="lib-empty" hidden>Aucun enregistrement pour l'instant.
+      Lancez un enregistrement depuis l'onglet Live.</div>
+  </section>
+
+  <!-- SD -->
+  <section class="panel" id="tab-sd">
+    <div class="toolbar"><h2>Carte microSD de la caméra</h2>
+      <button class="btn ghost" id="btn-sd-refresh">⟳ Actualiser</button></div>
+
+    <div class="sd-card" id="sd-card">Connexion à la caméra…</div>
+
+    <div class="sd-layout" id="sd-layout" hidden>
+      <aside class="sd-cal" aria-label="Jours avec enregistrements">
+        <div class="cal-head">
+          <button class="btn ghost" id="cal-prev" aria-label="Mois précédent">‹</button>
+          <span id="cal-title"></span>
+          <button class="btn ghost" id="cal-next" aria-label="Mois suivant">›</button>
+        </div>
+        <div class="cal-grid cal-dow"><span>lu</span><span>ma</span><span>me</span><span>je</span><span>ve</span><span>sa</span><span>di</span></div>
+        <div class="cal-grid" id="cal-grid"></div>
+        <div class="hint">Les jours en surbrillance contiennent des enregistrements.</div>
+      </aside>
+
+      <div class="sd-day">
+        <div class="sd-day-head">
+          <h3 id="sd-day-title">-</h3>
+          <span class="sd-day-meta" id="sd-day-meta"></span>
+        </div>
+        <div class="sd-animals" id="sd-animals">
+          <button class="btn ghost" id="btn-analyze" title="Détecter les animaux dans tous les clips de ce jour (en arrière-plan)">🐾 Analyser ce jour</button>
+          <span class="sd-day-meta" id="sd-analyze-status"></span>
+          <div class="chips" id="sd-filters" role="group" aria-label="Filtrer les clips"></div>
+        </div>
+        <div class="timeline" id="sd-timeline" aria-label="Répartition des clips sur 24 heures"></div>
+        <div class="timeline-scale"><span>0 h</span><span>6 h</span><span>12 h</span><span>18 h</span><span>24 h</span></div>
+        <div class="clips" id="sd-clips"></div>
+        <div class="empty" id="sd-empty" hidden>Aucun enregistrement ce jour-là.</div>
+      </div>
+    </div>
+  </section>
+  <!-- ANIMALS -->
+  <section class="panel" id="tab-animals">
+    <div class="toolbar"><h2>Animaux détectés</h2>
+      <span class="sd-day-meta" id="ani-status"></span>
+      <button class="btn ghost" id="btn-ani-refresh">⟳ Actualiser</button></div>
+    <div class="sd-layout">
+      <aside class="sd-cal ani-species" id="ani-species" aria-label="Espèces détectées"></aside>
+      <div class="sd-day">
+        <div class="sd-day-head"><h3 id="ani-title">-</h3><span class="sd-day-meta" id="ani-meta"></span></div>
+        <div class="clips" id="ani-clips"></div>
+        <div class="empty" id="ani-empty" hidden>Aucun animal détecté pour l'instant. L'analyse automatique tourne en arrière-plan.</div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<!-- Player modal -->
+<div class="modal" id="modal" hidden>
+  <div class="modal-box">
+    <div class="modal-head">
+      <span id="modal-title"></span>
+      <button class="btn ghost" id="modal-close">✕</button>
+    </div>
+    <video id="player" controls playsinline></video>
+    <div class="fetchbar" id="modal-fetch" hidden>
+      <div class="fetchbar-track"><div class="fetchbar-fill" id="modal-fetch-fill"></div></div>
+      <span id="modal-fetch-text"></span>
+    </div>
+    <div class="modal-actions">
+      <button class="btn" id="modal-sd-download" hidden>⬇ Télécharger</button>
+      <a class="btn" id="modal-download" download>⬇ Télécharger</a>
+    </div>
+  </div>
+</div>
+
+<!-- Settings / first-run -->
+<div class="modal" id="setup" hidden>
+  <form class="modal-box setup-box" id="setup-form" autocomplete="off">
+    <div class="modal-head"><span>Connexion à la caméra</span>
+      <button type="button" class="btn ghost" id="setup-close">✕</button></div>
+    <div class="setup-body">
+      <p class="hint">Ces identifiants restent sur cette machine (fichier <code>.env</code>, lisible par vous seul). Ils ne sont jamais envoyés ailleurs qu'à votre caméra.</p>
+      <label>Adresse IP de la caméra (facultatif)<input name="host" placeholder="192.168.0.50" inputmode="decimal"></label>
+      <label>Sous-réseau à scanner<input name="subnet" placeholder="192.168.0"></label>
+      <label>Compte caméra - utilisateur <small>(appli Tapo → Paramètres avancés → Compte de la caméra)</small><input name="user" autocomplete="username"></label>
+      <label>Compte caméra - mot de passe<input name="password" type="password" autocomplete="new-password" placeholder="laisser vide pour conserver"></label>
+      <label>Mot de passe du compte TP-Link (cloud) <small>- requis pour la carte SD</small><input name="cloud_password" type="password" autocomplete="new-password" placeholder="laisser vide pour conserver"></label>
+    </div>
+    <div class="modal-actions"><button class="btn" type="submit">Enregistrer</button></div>
+  </form>
+</div>
+
+<div class="toast" id="toast" hidden></div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>
