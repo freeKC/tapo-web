@@ -1,12 +1,14 @@
 # tapo-web
 
+[Version française](README.fr.md)
+
 A small self-hosted web app for a TP-Link Tapo camera. Live view, a browser for the videos
 sitting on the camera's SD card, and automatic animal detection so I can finally find out who
 eats the cat food at 3 am.
 
 Spoiler: it's a stone marten.
 
-![marten caught on the wall at night](docs/img/marten.jpg)
+![stone marten on the roof at night](docs/img/marten.jpg)
 
 Everything runs on my own machine and talks to the camera over the LAN. No cloud, no
 subscription, nothing leaves the house.
@@ -61,7 +63,14 @@ A few things I had to add to make it usable on a garden camera:
 * species that make no sense here (the model once saw a cow on my terrace) fall back to a
   plain "animal" tag
 
-On an old GTX 1050 a one minute clip takes 15 to 25 seconds. It also runs on CPU, just slower.
+On an old GTX 1050 a one minute clip takes about 16 seconds (average over 700 clips), so a full
+day of recordings is done in under 20 minutes. The whole chain, the reasons behind each step and
+the numbers are in [docs/DETECTION.md](docs/DETECTION.md).
+
+Out of the first 697 clips, 418 were nothing at all, 180 were our dog, and 5 were the marten.
+That is the point of the whole thing.
+
+It also runs on CPU, just slower.
 The model lives in its own process and its own virtualenv, and shuts down when there is nothing
 to do, so the web app itself stays light.
 
@@ -96,11 +105,24 @@ and only one connection at a time is opened to the camera since it does not like
 Useful settings in `.env`: `TAPO_DATA_DIR` (put the videos on another drive),
 `TAPO_ANALYZE_KEEP` (`all`, `animals` or `none`), `TAPO_ANALYZE_AUTO=0` to analyse only on demand.
 
+## Speed
+
+Clips come off the SD card at about 10x realtime (a 66 s clip in 7 s on my Wi-Fi) and playback
+starts after 2 or 3 seconds. Tools built on the older `playback` request get the same clip at
+1x, so one minute of video takes one minute. The difference comes from using the `download`
+request of the camera's media port, see the protocol repo for the details.
+
 ## Notes
 
 * Tested with a Tapo C510W, firmware 1.3.4. Other recent Tapo cameras should work the same way. Tell me if yours does or doesn't.
 * Runs fine under WSL2. If WSL goes to sleep when you close the terminal, start the app from a Windows scheduled task instead.
 * `python -m pytest tests -q` runs the offline tests (fake camera, fake media server).
 * The app never writes to or deletes anything on the SD card.
+
+Keywords, for people searching: Tapo C510W, C500, C520WS, C210, C220, C225, C100, C110, C120,
+C310, C320WS, TP-Link Tapo local API, error -40211, "Invalid authentication data", encrypt_type 4,
+SPAKE2+, download Tapo SD card recordings to PC, Tapo without cloud, Tapo Home Assistant,
+pytapo alternative, wildlife camera, trail camera software, fouine, marten, fox, hedgehog, DeepFaune,
+MegaDetector, PyTorch GTX 1050.
 
 MIT license. Not affiliated with TP-Link. DeepFaune has its own license (CeCILL / CC BY-SA for the weights) and is downloaded by the setup script, not included here.
