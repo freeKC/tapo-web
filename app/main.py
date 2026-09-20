@@ -450,7 +450,11 @@ def sd_hls_segment(clip_id: str, segment: str):
 # --------------------------------------------------------------------------- #
 @app.get("/")
 def index():
-    return FileResponse(STATIC / "index.html")
+    # version the assets by modification time: a browser never keeps a stale app.js
+    html = (STATIC / "index.html").read_text(encoding="utf-8")
+    for name in ("app.js", "styles.css"):
+        html = html.replace(f"/static/{name}", f"/static/{name}?v={int((STATIC / name).stat().st_mtime)}")
+    return Response(content=html, media_type="text/html", headers={"Cache-Control": "no-cache"})
 
 
 @app.get("/health", response_class=PlainTextResponse)
