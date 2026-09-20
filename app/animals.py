@@ -76,14 +76,41 @@ def _db() -> sqlite3.Connection:
         detections TEXT NOT NULL,        -- JSON list, best first
         error TEXT)""")
     con.execute("CREATE INDEX IF NOT EXISTS analysis_day ON analysis(day)")
+    # manual corrections survive a re-analysis: labels the user removed from a clip
+    con.execute("CREATE TABLE IF NOT EXISTS rejected (clip_id TEXT NOT NULL, label TEXT NOT NULL, "
+                "PRIMARY KEY (clip_id, label))")
     return con
+
+
+def _rejected(con) -> dict[str, set]:
+    out: dict[str, set] = {}
+    for cid, label in con.execute("SELECT clip_id, label FROM rejected"):
+        out.setdefault(cid, set()).add(label)
+    return out
+
+
+def _clean(cid: str, dets: list, rejected: dict) -> list:
+    bad = rejected.get(cid)
+    return [d for d in dets if d.get("label") not in bad] if bad else dets
+
+
+def reject(clip_id: str, label: str, undo: bool = False) -> None:
+    """The user says this label is wrong for this clip (or takes that back)."""
+    sd.parse_id(clip_id)
+    if label not in LABELS:
+        raise sd.SdError("Étiquette inconnue.")
+    with _db_lock, _db() as con:
+        if undo:
+            con.execute("DELETE FROM rejected WHERE clip_id=? AND label=?", (clip_id, label))
+        else:
+            con.execute("INSERT OR IGNORE INTO rejected VALUES (?,?)", (clip_id, label))
 
 
 _COLS = "clip_id,start,day,status,analyzed_at,model,seconds,detections,error"
 
 
-def _row(r) -> dict:
-    dets = json.loads(r[7] or "[]")
+def _row(r, rejected=None) -> dict:
+    dets = _clean(r[0], json.loads(r[7] or "[]"), rejected or {})
     for d in dets:
         d.update(describe(d.get("label", "animal")))
     return {"clip_id": r[0], "status": r[3], "analyzed_at": r[4], "model": r[5], "seconds": r[6],
@@ -95,23 +122,26 @@ def _row(r) -> dict:
 def results_for_day(day: str) -> dict[str, dict]:
     with _db_lock, _db() as con:
         rows = con.execute(f"SELECT {_COLS} FROM analysis WHERE day=?", (day,)).fetchall()
-    return {r[0]: _row(r) for r in rows}
+        rej = _rejected(con)
+    return {r[0]: _row(r, rej) for r in rows}
 
 
 def result(clip_id: str) -> dict | None:
     with _db_lock, _db() as con:
         r = con.execute(f"SELECT {_COLS} FROM analysis WHERE clip_id=?", (clip_id,)).fetchone()
-    return _row(r) if r else None
+        rej = _rejected(con)
+    return _row(r, rej) if r else None
 
 
 def days_with_animals() -> dict[str, dict]:
     """day -> {"analyzed": n, "animals": n} for the calendar."""
     out: dict[str, dict] = {}
     with _db_lock, _db() as con:
-        for day, dets in con.execute("SELECT day, detections FROM analysis WHERE status='done'"):
+        rej = _rejected(con)
+        for cid, day, dets in con.execute("SELECT clip_id, day, detections FROM analysis WHERE status='done'").fetchall():
             o = out.setdefault(day, {"analyzed": 0, "animals": 0})
             o["analyzed"] += 1
-            if any(describe(d.get("label", ""))["group"] == "animal" for d in json.loads(dets or "[]")):
+            if any(describe(d.get("label", ""))["group"] == "animal" for d in _clean(cid, json.loads(dets or "[]"), rej)):
                 o["animals"] += 1
     return out
 
@@ -338,9 +368,10 @@ def species() -> list[dict]:
     """Animals seen so far: [{key,label,emoji,count,last}] - most recent first."""
     out: dict[str, dict] = {}
     with _db_lock, _db() as con:
-        rows = con.execute("SELECT start, detections FROM analysis WHERE status='done' AND detections != '[]'").fetchall()
-    for start, dets in rows:
-        for d in json.loads(dets):
+        rows = con.execute("SELECT clip_id, start, detections FROM analysis WHERE status='done' AND detections != '[]'").fetchall()
+        rej = _rejected(con)
+    for cid, start, dets in rows:
+        for d in _clean(cid, json.loads(dets), rej):
             info = describe(d.get("label", "animal"))
             if info["group"] != "animal":
                 continue
@@ -357,8 +388,9 @@ def clips_with(key: str) -> list[dict]:
     with _db_lock, _db() as con:
         rows = con.execute("SELECT clip_id, start, day, detections FROM analysis "
                            "WHERE status='done' AND detections != '[]' ORDER BY start DESC").fetchall()
+        rej = _rejected(con)
     for cid, start, day, dets in rows:
-        dets = [{**d, **describe(d.get("label", "animal"))} for d in json.loads(dets)]
+        dets = [{**d, **describe(d.get("label", "animal"))} for d in _clean(cid, json.loads(dets), rej)]
         hit = next((d for d in dets if d["key"] == key or (key == "all" and d["group"] == "animal")), None)
         if not hit:
             continue

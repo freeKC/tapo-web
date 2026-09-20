@@ -8,6 +8,8 @@ from app import animals
 def tmp_store(tmp_path, monkeypatch):
     monkeypatch.setattr(animals, "DB_PATH", tmp_path / "a.sqlite")
     monkeypatch.setattr(animals, "FRAMES_DIR", tmp_path)
+    from zoneinfo import ZoneInfo
+    monkeypatch.setattr(animals.sd, "_tz", ZoneInfo("Europe/Brussels"))   # never ask the camera
 
 
 def test_store_roundtrip_labels_and_day_summary():
@@ -41,3 +43,18 @@ def test_enqueue_skips_done_and_duplicates(monkeypatch):
 def test_frame_path_rejects_bad_ids():
     with pytest.raises(animals.sd.SdError):
         animals.frame_path("../../etc/passwd")
+
+
+def test_rejected_label_disappears_everywhere_and_survives_reanalysis():
+    cid = "1789447084-1789447150"
+    dets = [{"label": "dog", "score": 1.0, "hits": 40, "first": 1, "last": 30},
+            {"label": "fox", "score": 0.92, "hits": 6, "first": 46, "last": 50}]
+    animals._store(cid, "20260915", "done", "m", 10.0, dets)
+    animals.reject(cid, "fox")
+    assert [d["key"] for d in animals.result(cid)["detections"]] == ["dog"]
+    assert [s["key"] for s in animals.species()] == ["dog"]
+    assert animals.clips_with("fox") == [] and len(animals.clips_with("dog")) == 1
+    animals._store(cid, "20260915", "done", "m2", 10.0, dets)            # analysed again later
+    assert [d["key"] for d in animals.result(cid)["detections"]] == ["dog"]
+    animals.reject(cid, "fox", undo=True)
+    assert len(animals.result(cid)["detections"]) == 2

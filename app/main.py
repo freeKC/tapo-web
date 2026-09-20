@@ -346,6 +346,13 @@ def sd_animals_stop():
     return {"cleared": animals.analyzer.clear()}
 
 
+@app.post("/api/sd/clips/{clip_id}/untag")
+def sd_untag(clip_id: str, key: str = Query(...), undo: bool = Query(False)):
+    """Manual correction: this label is wrong for this clip. Survives re-analysis."""
+    _sd(animals.reject, clip_id, key, undo)
+    return {"clip": clip_id, "removed": key, "undo": undo}
+
+
 @app.get("/api/sd/clips/{clip_id}/animal")
 def sd_animal_frame(clip_id: str):
     p = _sd(animals.frame_path, clip_id)

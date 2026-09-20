@@ -165,7 +165,7 @@ class Engine:
         if species:                          # side labels riding on the main animal's track are noise
             main = max(species, key=lambda d: d["hits"])
             dets = [d for d in dets if d not in species or d is main
-                    or d["hits"] >= max(5, 0.25 * main["hits"])]
+                    or d["hits"] >= max(5, 0.5 * main["hits"])]   # a dog seen from behind reads "fox" on a few frames
         dets = [d for d in dets if d["label"] != "animal" or (d["hits"] >= 8 and not species)]
         order = {"person": 1, "vehicle": 2}
         dets.sort(key=lambda d: (order.get(d["label"], 0), -d["score"] * min(d["hits"], 5)))

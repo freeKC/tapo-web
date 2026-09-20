@@ -470,7 +470,9 @@ function clipRow(c) {
       class: "tag " + (d.group === "animal" ? "animal" : "person"),
       title: `${d.hits} images, vu de ${fmtDur(d.first)} à ${fmtDur(d.last)} - cliquer pour lire à cet instant`,
       text: `${d.emoji} ${d.label}` + (d.group === "animal" && d.key !== "animal" ? ` ${Math.round(d.score * 100)} %` : ""),
-      onclick: () => openSdPlayer(c.id, Math.max(0, d.first - 2)) }));
+      onclick: () => openSdPlayer(c.id, Math.max(0, d.first - 2)) }),
+      untagButton(c.id, d, () => { an.detections = an.detections.filter((x) => x !== d);
+        an.animal = an.detections.some((x) => x.group === "animal"); renderDay(); }));
     if (!an.detections.length) tags.push(h("span", { class: "tag none", text: "analysé · rien" }));
   } else if (an && an.status === "error") tags.push(h("span", { class: "tag err", text: "analyse : " + (an.error || "échec") }));
   if (c.analyzing) tags.push(h("span", { class: "tag", text: c.analyzing === "running" ? "🔎 analyse en cours…" : "analyse en attente" }));
@@ -653,6 +655,20 @@ async function openSdPlayer(id, startAt = 0) {
     toast(e.message, "err");
     if (sd.player === pl) closePlayer();                  // a late failure of A must not close B
   }
+}
+
+function untagButton(clipId, d, after) {
+  return h("button", { class: "tag-x", title: `Ce n'est pas « ${d.label} » : retirer cette étiquette`,
+    "aria-label": `Retirer l'étiquette ${d.label}`, text: "✕",
+    onclick: async (e) => {
+      e.stopPropagation();
+      if (!confirm(`Retirer l'étiquette « ${d.label} » de cette vidéo ?`)) return;
+      try {
+        await api(`/api/sd/clips/${clipId}/untag?key=${encodeURIComponent(d.key)}`, { method: "POST" });
+        toast("Étiquette retirée", "ok");
+        after();
+      } catch (err) { toast(err.message, "err"); }
+    } });
 }
 
 function sdSeekOnce(t) {
@@ -890,11 +906,11 @@ async function loadAnimalClips() {
 
 function animalRow(c) {
   const play = (t) => playAnimalClip(c, t);
-  const tags = c.detections.map((d) => h("button", {
+  const tags = c.detections.flatMap((d) => [h("button", {
     class: "tag " + (d.group === "animal" ? "animal" : "person"),
     title: `${d.hits} images, vu de ${fmtDur(d.first)} à ${fmtDur(d.last)}`,
     text: `${d.emoji} ${d.label}` + (d.group === "animal" && d.key !== "animal" ? ` ${Math.round(d.score * 100)} %` : ""),
-    onclick: () => play(Math.max(0, d.first - 2)) }));
+    onclick: () => play(Math.max(0, d.first - 2)) }), untagButton(c.id, d, loadAnimals)]);
   tags.push(h("span", { class: "tag " + (c.cached ? "local" : "none"), text: c.cached ? "copie locale" : "sur la carte SD" }));
   const img = h("img", { src: c.frame ? `/api/sd/clips/${c.id}/animal` : `/api/sd/clips/${c.id}/thumb`, loading: "lazy", alt: "",
     onerror: (e) => e.target.remove() });
