@@ -170,7 +170,14 @@ CONTEXT_TAG = b"PAKE V1"  # Spake2pBean.SPAKE2P_CONTEXT_TAG
 
 
 class TapoV4:
-    def __init__(self, host, password, username="admin", port=443, timeout=10):
+    def __init__(self, host, password, username="admin", port=443, timeout=10, credential_hash="md5"):
+        # credential_hash: how the password is hashed before PBKDF2. The app tries, in order,
+        # md5(cloud password), sha256(local access token) and sha256(cloud password); "md5"
+        # is what a camera holding the plain TP-Link password wants, "sha256" is for the
+        # local-access-token mode (pass the token as `password`).
+        if credential_hash not in ("md5", "sha256"):
+            raise ValueError("credential_hash must be 'md5' or 'sha256'")
+        self.credential_hash = credential_hash
         self.host = host
         self.port = port
         self.username = username
@@ -219,7 +226,10 @@ class TapoV4:
         Y = decode_point(base64.b64decode(res["dev_share"]))
 
         # ---- w0, w1  (jl1/d.java: PBKDF2-SHA256(md5hex(pwd), dev_salt, iters) -> 80 bytes)
-        credential = hashlib.md5(self.password.encode()).hexdigest()  # rb1/a.h
+        if self.credential_hash == "sha256":                            # util/j.h -> upper hex
+            credential = hashlib.sha256(self.password.encode()).hexdigest().upper()
+        else:
+            credential = hashlib.md5(self.password.encode()).hexdigest()  # rb1/a.h
         dk = hashlib.pbkdf2_hmac("sha256", credential.encode(), dev_salt, iterations, 80)
         w0 = int.from_bytes(dk[0:40], "big") % N
         w1 = int.from_bytes(dk[40:80], "big") % N
@@ -263,7 +273,10 @@ class TapoV4:
             "user_confirm": base64.b64encode(cA).decode(),
         })
         if "result" not in share:
-            raise TapoV4Error(share.get("error_code"), "pake_share failed")
+            # error_info (when present) says how many tries are left before a lockout
+            info = share.get("error_info") or {}
+            raise TapoV4Error(share.get("error_code"),
+                              "pake_share failed (wrong password?)" + (f" {info}" if info else ""))
         sres = share["result"]
         dev_confirm = base64.b64decode(sres["dev_confirm"])
         expected_cB = hmac.new(KcB, Xb, hashlib.sha256).digest()
