@@ -58,3 +58,14 @@ def test_rejected_label_disappears_everywhere_and_survives_reanalysis():
     assert [d["key"] for d in animals.result(cid)["detections"]] == ["dog"]
     animals.reject(cid, "fox", undo=True)
     assert len(animals.result(cid)["detections"]) == 2
+
+
+def test_corrupt_clips_are_never_requeued(monkeypatch):
+    monkeypatch.setattr(animals.Analyzer, "_loop", lambda self: None)
+    a = animals.Analyzer()
+    cid = "1790356971-1790357013"
+    animals._store(cid, "20260925", "error", None, None, [], animals.sd.CORRUPT_MESSAGE)
+    assert a.enqueue([(cid, "20260925")]) == 0
+    animals._store(cid, "20260925", "error", None, None, [], "Caméra hors ligne.")
+    monkeypatch.setattr(animals.time, "time", lambda: 10 ** 10)          # long after the failure
+    assert a.enqueue([(cid, "20260925")]) == 1

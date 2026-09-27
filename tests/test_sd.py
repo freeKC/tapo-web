@@ -130,3 +130,16 @@ def test_importing_sd_has_no_filesystem_side_effects(tmp_path):
         assert marker.is_dir()
     finally:
         marker.rmdir()
+
+
+def test_mp4_is_playable_rejects_garbage_and_accepts_a_real_file(tmp_path):
+    import shutil, subprocess
+    if not shutil.which("ffmpeg"):
+        pytest.skip("ffmpeg not installed")
+    bad = tmp_path / "bad.mp4"
+    bad.write_bytes(b"\x00" * 4096)
+    assert sd.mp4_is_playable(bad) is False
+    good = tmp_path / "good.mp4"
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "color=c=black:s=64x64:r=5:d=1",
+                    "-c:v", "libx264", "-pix_fmt", "yuv420p", str(good)], check=True)
+    assert sd.mp4_is_playable(good) is True

@@ -262,7 +262,8 @@ class Analyzer:
         if not redo:
             with _db_lock, _db() as con:
                 known = {r[0] for r in con.execute(
-                    "SELECT clip_id FROM analysis WHERE status='done' OR analyzed_at > ?", (time.time() - 6 * 3600,))}
+                    "SELECT clip_id FROM analysis WHERE status='done' OR analyzed_at > ? OR error = ?",
+                    (time.time() - 6 * 3600, sd.CORRUPT_MESSAGE))}
         n = 0
         with self._lock:
             for cid, day in clips:
@@ -341,7 +342,12 @@ class Analyzer:
         raise sd.SdError("récupération du clip trop longue")
 
     def _analyze(self, clip_id: str, day: str):
-        path, ours = self._fetch(clip_id)
+        try:
+            path, ours = self._fetch(clip_id)
+        except sd.SdError as e:
+            if str(e) == sd.CORRUPT_MESSAGE:      # damaged on the card: remember, never retry
+                _store(clip_id, day, "error", None, None, [], str(e))
+            raise
         frame_out = FRAMES_DIR / f"{clip_id}.jpg"
         t0 = time.time()
         try:

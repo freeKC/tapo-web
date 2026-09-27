@@ -400,6 +400,25 @@ class _Pump(threading.Thread):
             pass
 
 
+CORRUPT_MESSAGE = "enregistrement corrompu sur la carte SD (vidéo illisible)"
+
+
+def mp4_is_playable(path: Path) -> bool:
+    """A quick ffprobe: at least one video stream with a duration."""
+    try:
+        out = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0",
+                              "-show_entries", "stream=codec_name:format=duration",
+                              "-of", "csv=p=0", str(path)],
+                             capture_output=True, text=True, timeout=30)
+    except (subprocess.SubprocessError, OSError):
+        return True                           # cannot tell: do not throw the file away
+    lines = [ln.strip() for ln in out.stdout.splitlines() if ln.strip()]
+    try:
+        return out.returncode == 0 and len(lines) >= 2 and float(lines[-1]) > 0
+    except ValueError:
+        return False
+
+
 class _Mux:
     """One ffmpeg per clip: video TS on stdin + raw A-law on an extra pipe ->
     HLS event playlist (play while fetching) and the faststart MP4, no video
@@ -475,6 +494,9 @@ class _Mux:
             raise SdError("ffmpeg ne termine pas la finalisation.")
         if self.proc.returncode != 0 or not self.part.is_file() or self.part.stat().st_size < 1024:
             raise SdError("Conversion MP4 échouée : " + self._err())
+        if not mp4_is_playable(self.part):
+            # ffmpeg happily copies garbage: some recordings are damaged on the card itself
+            raise SdError(CORRUPT_MESSAGE)
 
     def abort(self):
         if self.proc is not None and self.proc.poll() is None:
