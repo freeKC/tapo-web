@@ -164,6 +164,77 @@ class TapoV4Error(Exception):
 
 
 # --------------------------------------------------------------------------- #
+#  Credential shaping (what goes into PBKDF2)
+# --------------------------------------------------------------------------- #
+_CRYPT_B64 = "./0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+_CRYPT_ORDER = [(0, 10, 20), (21, 1, 11), (12, 22, 2), (3, 13, 23), (24, 4, 14),
+                (15, 25, 5), (6, 16, 26), (27, 7, 17), (18, 28, 8), (9, 19, 29)]
+
+
+def _crypt64(value: int, n: int) -> str:
+    out = ""
+    for _ in range(n):
+        out += _CRYPT_B64[value & 0x3F]
+        value >>= 6
+    return out
+
+
+def sha256_crypt(key: str, prefix: str) -> str:
+    """Unix SHA-256-crypt ("$5$", Drepper 2007). ``prefix`` is what the camera sends
+    in extra_crypt.params.passwd_prefix, e.g. "$5$x1hYMevsEYq2APg+$"; salt is cut to
+    16 chars, "rounds=N$" is honoured. Returns the full "$5$[rounds=N$]salt$hash"."""
+    rest = prefix[3:] if prefix.startswith("$5$") else prefix
+    rounds, explicit = 5000, False
+    if rest.startswith("rounds="):
+        head, _, tail = rest.partition("$")
+        if tail:
+            rounds, explicit, rest = max(1000, min(999_999_999, int(head[7:]))), True, tail
+    end = rest.find("$")
+    salt = rest[:min(end if end > 0 else len(rest), 16)]
+    k, s = key.encode(), salt.encode()
+    rep = lambda d, n: (d * (n // 32 + 1))[:n]           # noqa: E731
+    b = hashlib.sha256(k + s + k).digest()
+    a = hashlib.sha256(k + s + rep(b, len(k)))
+    n = len(k)
+    while n:
+        a.update(b if n & 1 else k)
+        n >>= 1
+    a = a.digest()
+    p = rep(hashlib.sha256(k * len(k)).digest(), len(k))
+    sb = rep(hashlib.sha256(s * (16 + a[0])).digest(), len(s))
+    c = a
+    for i in range(rounds):
+        h = hashlib.sha256(p if i & 1 else c)
+        if i % 3:
+            h.update(sb)
+        if i % 7:
+            h.update(p)
+        h.update(c if i & 1 else p)
+        c = h.digest()
+    enc = "".join(_crypt64((c[x] << 16) | (c[y] << 8) | c[z], 4) for x, y, z in _CRYPT_ORDER)
+    enc += _crypt64((c[31] << 8) | c[30], 3)
+    return f"$5${'rounds=%d$' % rounds if explicit else ''}{salt}${enc}"
+
+
+def apply_extra_crypt(passcode: str, extra_crypt: dict | None) -> str:
+    """Some cameras (seen on C200 hw 5.0 fw 1.4.6) answer pake_register with
+    ``extra_crypt`` and expect the passcode run through it before PBKDF2
+    (Spake2pRegisterResult.getSpake2pCredentials). Ours (C510W) sends none."""
+    if not extra_crypt:
+        return passcode
+    kind = (extra_crypt.get("type") or "").lower()
+    params = extra_crypt.get("params") or {}
+    if kind == "password_shadow":
+        pid = int(params.get("passwd_id", 0))
+        if pid == 5:
+            return sha256_crypt(passcode, str(params.get("passwd_prefix", "")))
+        if pid == 2:
+            return hashlib.sha1(passcode.encode()).hexdigest()
+        raise TapoV4Error(None, f"extra_crypt password_shadow passwd_id {pid} not supported")
+    raise TapoV4Error(None, f"extra_crypt type {kind!r} not supported")
+
+
+# --------------------------------------------------------------------------- #
 #  Client
 # --------------------------------------------------------------------------- #
 CONTEXT_TAG = b"PAKE V1"  # Spake2pBean.SPAKE2P_CONTEXT_TAG
@@ -230,6 +301,7 @@ class TapoV4:
             credential = hashlib.sha256(self.password.encode()).hexdigest().upper()
         else:
             credential = hashlib.md5(self.password.encode()).hexdigest()  # rb1/a.h
+        credential = apply_extra_crypt(credential, res.get("extra_crypt"))  # C200: sha256-crypt
         dk = hashlib.pbkdf2_hmac("sha256", credential.encode(), dev_salt, iterations, 80)
         w0 = int.from_bytes(dk[0:40], "big") % N
         w1 = int.from_bytes(dk[40:80], "big") % N
@@ -398,11 +470,20 @@ class TapoV4:
         tz = r[1].get("result", {}).get("system", {}).get("basic", {}) if len(r) > 1 else {}
         return {**clock, **tz}
 
-    def search_days(self, start_date: str, end_date: str):
-        """Days (YYYYMMDD) that have at least one recording, within [start, end]."""
-        r = self.request("searchDateWithVideo", {"playback": {"search_year_utility": {
-            "channel": [0], "start_date": start_date, "end_date": end_date}}})
-        return [d["date"] for d in self._unwrap(r["playback"]["search_results"])]
+    def search_days(self, start_date: str, end_date: str, chunk_days: int = 31):
+        """Days (YYYYMMDD) that have at least one recording, within [start, end].
+        Asked month by month: a well filled card answers -71105 to a wide range."""
+        import datetime as _dt
+        a = _dt.datetime.strptime(start_date, "%Y%m%d").date()
+        b = _dt.datetime.strptime(end_date, "%Y%m%d").date()
+        out: list[str] = []
+        while a <= b:
+            c = min(b, a + _dt.timedelta(days=chunk_days - 1))
+            r = self.request("searchDateWithVideo", {"playback": {"search_year_utility": {
+                "channel": [0], "start_date": a.strftime("%Y%m%d"), "end_date": c.strftime("%Y%m%d")}}})
+            out += [d["date"] for d in self._unwrap(r["playback"].get("search_results"))]
+            a = c + _dt.timedelta(days=1)
+        return sorted(set(out))
 
     def search_videos_utc(self, start_ts: int, end_ts: int, player_id: str, page: int = 100):
         """Clips within [start_ts, end_ts] (UTC epoch) - the listing the official app

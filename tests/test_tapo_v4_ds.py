@@ -13,7 +13,7 @@ import time
 import pytest
 from Crypto.Cipher import AES
 
-from app.tapo_v4 import TapoV4, TapoV4Error
+from app.tapo_v4 import TapoV4, TapoV4Error, apply_extra_crypt, sha256_crypt
 
 
 class FakeResponse:
@@ -148,3 +148,36 @@ def test_listing_helpers_unwrap_and_paginate(monkeypatch):
     monkeypatch.setattr(c, "request", fake_request)
     clips = c.search_videos_utc(0, 10, "PLAYER", page=3)
     assert calls == [(0, 2), (3, 5)] and len(clips) == 4 and clips[0]["startTime"] == 0
+
+
+def test_sha256_crypt_matches_the_glibc_reference_vectors():
+    assert sha256_crypt("Hello world!", "$5$saltstring") == "$5$saltstring$5B8vYYiY.CVt1RlTTf8KbXBH3hsxY/GNooZaBBGWEc5"
+    assert sha256_crypt("Hello world!", "$5$rounds=10000$saltstringsaltstring") == \
+        "$5$rounds=10000$saltstringsaltst$3xv.VbSHBb41AL9AvLeujZkZRBAwqFMz2.opqey6IcA"
+    assert sha256_crypt("a very much longer text to encrypt.  This one even stretches over morethan one line.",
+                        "$5$rounds=1400$anotherlongsaltstring") == \
+        "$5$rounds=1400$anotherlongsalts$Rx.j8H.h8HjEDGomFU8bDkXm3XIUnzyxf12oP84Bnq1"
+    # the camera sends the prefix with a trailing "$"
+    assert sha256_crypt("x", "$5$x1hYMevsEYq2APg+$").startswith("$5$x1hYMevsEYq2APg+$")
+
+
+def test_extra_crypt_only_applies_when_the_camera_asks():
+    assert apply_extra_crypt("abc", None) == "abc"
+    shadow = {"type": "password_shadow", "params": {"passwd_id": 5, "passwd_prefix": "$5$saltstring$"}}
+    assert apply_extra_crypt("Hello world!", shadow) == sha256_crypt("Hello world!", "$5$saltstring")
+    with pytest.raises(TapoV4Error):
+        apply_extra_crypt("abc", {"type": "password_shadow", "params": {"passwd_id": 9}})
+
+
+def test_search_days_is_chunked(monkeypatch):
+    c = TapoV4("192.0.2.1", "pw")
+    ranges = []
+
+    def fake_request(method, params=None):
+        q = params["playback"]["search_year_utility"]
+        ranges.append((q["start_date"], q["end_date"]))
+        return {"playback": {"search_results": [{"search_results_1": {"date": q["start_date"]}}]}}
+    monkeypatch.setattr(c, "request", fake_request)
+    days = c.search_days("20260101", "20260315")
+    assert ranges == [("20260101", "20260131"), ("20260201", "20260303"), ("20260304", "20260315")]
+    assert days == ["20260101", "20260201", "20260304"]
