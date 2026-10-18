@@ -1,5 +1,7 @@
 "use strict";
 
+const t = TapoI18n.t;
+
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => Array.from(document.querySelectorAll(sel));
 
@@ -20,7 +22,7 @@ async function api(path, opts) {
   if (ct.includes("application/json")) body = await res.json().catch(() => null);
   if (!res.ok) {
     const msg = (body && (body.detail || body.reason)) || res.statusText;
-    throw new Error(msg);
+    throw new Error(TapoI18n.message(msg));
   }
   return body;
 }
@@ -37,11 +39,11 @@ function toast(msg, kind = "") {
 
 function fmtSize(b) {
   if (b == null) return "";
-  const u = ["o", "Ko", "Mo", "Go"];
+  const u = [t("o"), t("Ko"), t("Mo"), t("Go")];
   let i = 0;
   while (b >= 1024 && i < u.length - 1) { b /= 1024; i++; }
   const digits = i > 0 && Math.round(b * 10) / 10 < 10 ? 1 : 0;
-  return b.toLocaleString("fr-FR", { minimumFractionDigits: digits, maximumFractionDigits: digits }) + " " + u[i];
+  return b.toLocaleString(TapoI18n.locale, { minimumFractionDigits: digits, maximumFractionDigits: digits }) + " " + u[i];
 }
 function fmtDur(s) {
   if (s == null) return "";
@@ -77,7 +79,7 @@ async function refreshStatus() {
     state.online = s.online;
     state.ptz = s.ptz;
     $("#statusdot").className = "dot " + (s.online ? "online" : "offline");
-    $("#statustext").textContent = s.online ? "Caméra en ligne" : "Caméra hors ligne";
+    $("#statustext").textContent = s.online ? t("Caméra en ligne") : t("Caméra hors ligne");
     const meta = [];
     if (s.host) meta.push(s.host);
     if (s.model) meta.push(s.model);
@@ -85,18 +87,18 @@ async function refreshStatus() {
     $("#statusmeta").textContent = meta.length ? "· " + meta.join(" · ") : "";
     $("#ptz-group").hidden = !s.ptz;
     $("#cont-toggle").checked = !!s.continuous;
-    $("#cont-label").textContent = s.continuous ? "Activé" : "Désactivé";
+    $("#cont-label").textContent = s.continuous ? t("Activé") : t("Désactivé");
   } catch (e) {
     $("#statusdot").className = "dot offline";
-    $("#statustext").textContent = "Erreur de statut";
+    $("#statustext").textContent = t("Erreur de statut");
   }
 }
 
 $("#btn-discover").addEventListener("click", async () => {
-  $("#statustext").textContent = "Recherche…";
+  $("#statustext").textContent = t("Recherche…");
   try {
     await api("/api/discover", { method: "POST" });
-  } catch (e) { toast(e.message, "err"); }
+  } catch (e) { toast(TapoI18n.message(e.message), "err"); }
   refreshStatus();
 });
 
@@ -125,14 +127,14 @@ function startLive() {
       if (data.fatal) {
         if (data.type === Hls.ErrorTypes.NETWORK_ERROR) hls.startLoad();
         else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) hls.recoverMediaError();
-        else { toast("Erreur live: " + (data.details || ""), "err"); stopLive(); }
+        else { toast(t("Erreur live: ") + (data.details || ""), "err"); stopLive(); }
       }
     });
   } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
     video.src = url; // Safari native HLS
     video.play().catch(() => {});
   } else {
-    toast("HLS non supporté par ce navigateur", "err");
+    toast(t("HLS non supporté par ce navigateur"), "err");
     return;
   }
   state.liveOn = true;
@@ -157,10 +159,10 @@ $("#btn-live-stop").addEventListener("click", stopLive);
 
 // ---------- snapshot ----------
 $("#btn-snap").addEventListener("click", async () => {
-  toast("Capture…");
+  toast(t("Capture…"));
   try {
     const res = await fetch(`/api/snapshot?stream=${state.stream}`);
-    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || "échec");
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || t("échec"));
     const blob = await res.blob();
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -168,8 +170,8 @@ $("#btn-snap").addEventListener("click", async () => {
     a.download = `snapshot_${Date.now()}.jpg`;
     a.click();
     URL.revokeObjectURL(url);
-    toast("Photo enregistrée", "ok");
-  } catch (e) { toast(e.message, "err"); }
+    toast(t("Photo enregistrée"), "ok");
+  } catch (e) { toast(TapoI18n.message(e.message), "err"); }
 });
 
 // ---------- manual recording ----------
@@ -180,21 +182,21 @@ $("#btn-rec-start").addEventListener("click", async () => {
     $("#btn-rec-start").disabled = true;
     $("#btn-rec-stop").disabled = false;
     $("#rec-badge").hidden = false;
-    $("#rec-hint").textContent = "Enregistrement en cours → " + r.target;
-    toast("Enregistrement démarré", "ok");
-  } catch (e) { toast(e.message, "err"); }
+    $("#rec-hint").textContent = t("Enregistrement en cours → ") + r.target;
+    toast(t("Enregistrement démarré"), "ok");
+  } catch (e) { toast(TapoI18n.message(e.message), "err"); }
 });
 $("#btn-rec-stop").addEventListener("click", async () => {
   if (!state.manualRecId) return;
   try {
     await api(`/api/record/stop?id=${encodeURIComponent(state.manualRecId)}`, { method: "POST" });
-    toast("Enregistrement arrêté", "ok");
-  } catch (e) { toast(e.message, "err"); }
+    toast(t("Enregistrement arrêté"), "ok");
+  } catch (e) { toast(TapoI18n.message(e.message), "err"); }
   state.manualRecId = null;
   $("#btn-rec-start").disabled = false;
   $("#btn-rec-stop").disabled = true;
   $("#rec-badge").hidden = true;
-  $("#rec-hint").textContent = "Capture le flux vers un MP4 local.";
+  $("#rec-hint").textContent = t("Capture le flux vers un MP4 local.");
 });
 
 // ---------- continuous DVR ----------
@@ -203,11 +205,11 @@ $("#cont-toggle").addEventListener("change", async (e) => {
   try {
     if (on) await api(`/api/continuous/start?stream=${state.stream}`, { method: "POST" });
     else await api(`/api/continuous/stop`, { method: "POST" });
-    $("#cont-label").textContent = on ? "Activé" : "Désactivé";
-    toast(on ? "DVR continu activé" : "DVR continu arrêté", "ok");
+    $("#cont-label").textContent = on ? t("Activé") : t("Désactivé");
+    toast(on ? t("DVR continu activé") : t("DVR continu arrêté"), "ok");
   } catch (err) {
     e.target.checked = !on;
-    toast(err.message, "err");
+    toast(TapoI18n.message(err.message), "err");
   }
 });
 
@@ -215,7 +217,7 @@ $("#cont-toggle").addEventListener("change", async (e) => {
 $$(".ptzpad button[data-dir]").forEach((b) => {
   b.addEventListener("click", async () => {
     try { await api(`/api/ptz?direction=${b.dataset.dir}`, { method: "POST" }); }
-    catch (e) { toast(e.message, "err"); }
+    catch (e) { toast(TapoI18n.message(e.message), "err"); }
   });
 });
 
@@ -228,7 +230,7 @@ async function loadLibrary() {
     $("#lib-empty").hidden = recs.length > 0;
     grid.innerHTML = "";
     for (const r of recs) grid.appendChild(card(r));
-  } catch (e) { toast(e.message, "err"); }
+  } catch (e) { toast(TapoI18n.message(e.message), "err"); }
 }
 
 function card(r) {
@@ -237,7 +239,7 @@ function card(r) {
   const res = r.width && r.height ? `${r.width}×${r.height}` : "";
   el.innerHTML = `
     <div class="thumb" style="background-image:url('/api/recordings/${encodeURIComponent(r.name)}/thumb')">
-      <span class="badge ${r.kind}">${r.kind === "continuous" ? "DVR" : "Manuel"}</span>
+      <span class="badge ${r.kind}">${r.kind === "continuous" ? "DVR" : t("Manuel")}</span>
       ${r.duration != null ? `<span class="dur">${fmtDur(r.duration)}</span>` : ""}
     </div>
     <div class="body">
@@ -246,7 +248,7 @@ function card(r) {
         <span>${r.created}</span><span>${fmtSize(r.size)}</span>${res ? `<span>${res}</span>` : ""}
       </div>
       <div class="actions">
-        <button class="btn play">▶ Lire</button>
+        <button class="btn play">${t("▶ Lire")}</button>
         <a class="btn ghost dl" href="/api/recordings/${encodeURIComponent(r.name)}/download">⬇</a>
         <button class="btn danger del">🗑</button>
       </div>
@@ -254,12 +256,12 @@ function card(r) {
   el.querySelector(".thumb").addEventListener("click", () => openPlayer(r.name));
   el.querySelector(".play").addEventListener("click", () => openPlayer(r.name));
   el.querySelector(".del").addEventListener("click", async () => {
-    if (!confirm(`Supprimer ${r.name} ?`)) return;
+    if (!confirm(t`Supprimer ${r.name} ?`)) return;
     try {
       await api(`/api/recordings/${encodeURIComponent(r.name)}`, { method: "DELETE" });
-      toast("Supprimé", "ok");
+      toast(t("Supprimé"), "ok");
       loadLibrary();
-    } catch (e) { toast(e.message, "err"); }
+    } catch (e) { toast(TapoI18n.message(e.message), "err"); }
   });
   return el;
 }
@@ -323,7 +325,7 @@ const sdClip = (id) => sd.clips.find((c) => c.id === id);
 async function loadSd(force = false) {
   const card = $("#sd-card");
   card.className = "sd-card";
-  card.textContent = "Connexion à la caméra…";
+  card.textContent = t("Connexion à la caméra…");
   const q = force ? "?force=true" : "";
   try {
     const st = await api("/api/sd/status" + q);
@@ -345,8 +347,8 @@ async function loadSd(force = false) {
     $("#sd-layout").hidden = true;
     card.className = "sd-card err";
     card.replaceChildren(
-      h("div", { text: "Impossible de lire la carte SD : " + e.message }),
-      h("button", { class: "btn ghost retry", text: "Réessayer", onclick: () => loadSd(true) }));
+      h("div", { text: t("Impossible de lire la carte SD : ") + TapoI18n.message(e.message) }),
+      h("button", { class: "btn ghost retry", text: t("Réessayer"), onclick: () => loadSd(true) }));
   }
 }
 
@@ -355,23 +357,23 @@ function renderSdCard(st) {
   if (!st.available) {
     card.className = "sd-card err";
     card.replaceChildren(
-      h("div", { class: "sd-card-line" }, h("span", { class: "pill bad", text: "Indisponible" }),
-        h("span", { text: st.reason || "Carte SD inaccessible." })),
-      h("button", { class: "btn ghost retry", text: "Réessayer", onclick: () => loadSd(true) }));
+      h("div", { class: "sd-card-line" }, h("span", { class: "pill bad", text: t("Indisponible") }),
+        h("span", { text: TapoI18n.message(st.reason) || t("Carte SD inaccessible.") })),
+      h("button", { class: "btn ghost retry", text: t("Réessayer"), onclick: () => loadSd(true) }));
     return;
   }
   const c = st.card || {}, local = st.cached || {};
   const used = c.total ? Math.min(100, Math.round(100 * (c.total - (c.free || 0)) / c.total)) : null;
   const line = h("div", { class: "sd-card-line" },
-    h("span", { class: "pill", text: "Carte OK" }),
-    c.total != null && h("span", {}, "Capacité ", h("b", { text: fmtSize(c.total) })),
-    c.free != null && h("span", {}, "Libre ", h("b", { text: fmtSize(c.free) })),
-    c.loop && h("span", { text: "Enregistrement en boucle" }),
-    c.oldest && h("span", {}, "Depuis le ", h("b", { text: new Date(c.oldest * 1000).toLocaleDateString("fr-FR") })),
-    h("span", {}, "Copies locales ", h("b", { text: `${local.count || 0}` }),
+    h("span", { class: "pill", text: t("Carte OK") }),
+    c.total != null && h("span", {}, t("Capacité "), h("b", { text: fmtSize(c.total) })),
+    c.free != null && h("span", {}, t("Libre "), h("b", { text: fmtSize(c.free) })),
+    c.loop && h("span", { text: t("Enregistrement en boucle") }),
+    c.oldest && h("span", {}, t("Depuis le "), h("b", { text: new Date(c.oldest * 1000).toLocaleDateString(TapoI18n.locale) })),
+    h("span", {}, t("Copies locales "), h("b", { text: `${local.count || 0}` }),
       local.bytes ? ` (${fmtSize(local.bytes)})` : ""));
   card.replaceChildren(line);
-  if (used != null) card.append(h("div", { class: "meter", title: `${used} % utilisé` }, h("div", { style: `width:${used}%` })));
+  if (used != null) card.append(h("div", { class: "meter", title: t`${used} % utilisé` }, h("div", { style: `width:${used}%` })));
 }
 
 // ---- calendar
@@ -381,7 +383,7 @@ function renderCalendar() {
   if (!sd.month) sd.month = months[months.length - 1] || null;
   if (!sd.month) { grid.replaceChildren(); $("#cal-title").textContent = "-"; return; }
   const y = +sd.month.slice(0, 4), m = +sd.month.slice(4, 6) - 1;
-  $("#cal-title").textContent = new Date(y, m, 1).toLocaleDateString("fr-FR", { month: "long", year: "numeric" });
+  $("#cal-title").textContent = new Date(y, m, 1).toLocaleDateString(TapoI18n.locale, { month: "long", year: "numeric" });
   $("#cal-prev").disabled = !months.some((x) => x < sd.month);
   $("#cal-next").disabled = !months.some((x) => x > sd.month);
   const lead = (new Date(y, m, 1).getDay() + 6) % 7;      // Monday-first
@@ -394,7 +396,7 @@ function renderCalendar() {
     cells.push(h("button", {
       class: (has ? "has" : "") + (ymd === sd.date ? " sel" : "") + ((sd.aniDays[ymd] || {}).animals ? " ani" : ""), text: String(d),
       disabled: !has, "aria-pressed": ymd === sd.date ? "true" : "false",
-      "aria-label": sdDate(ymd).toLocaleDateString("fr-FR", { day: "numeric", month: "long" }) + (has ? "" : " (aucun enregistrement)"),
+      "aria-label": sdDate(ymd).toLocaleDateString(TapoI18n.locale, { day: "numeric", month: "long" }) + (has ? "" : t(" (aucun enregistrement)")),
       onclick: () => { sd.date = ymd; renderCalendar(); loadDay(ymd); },
     }));
   }
@@ -410,9 +412,9 @@ $("#cal-next").addEventListener("click", () => shiftMonth(1));
 
 // ---- day view
 async function loadDay(date, force = false) {
-  $("#sd-day-title").textContent = sdDate(date).toLocaleDateString("fr-FR",
+  $("#sd-day-title").textContent = sdDate(date).toLocaleDateString(TapoI18n.locale,
     { weekday: "long", day: "numeric", month: "long", year: "numeric" });
-  $("#sd-day-meta").textContent = "Chargement…";
+  $("#sd-day-meta").textContent = t("Chargement…");
   sd.clips = [];
   renderDay();
   $("#sd-empty").hidden = true;
@@ -426,22 +428,22 @@ async function loadDay(date, force = false) {
     if (date !== sd.date) return;
     $("#sd-day-meta").textContent = "";
     $("#sd-clips").replaceChildren(h("div", { class: "empty" },
-      h("div", { text: "Impossible de lister ce jour : " + e.message }),
-      h("button", { class: "btn ghost retry", text: "Réessayer", onclick: () => loadDay(date, true) })));
+      h("div", { text: t("Impossible de lister ce jour : ") + TapoI18n.message(e.message) }),
+      h("button", { class: "btn ghost retry", text: t("Réessayer"), onclick: () => loadDay(date, true) })));
   }
 }
 
 function renderDay() {
   const total = sd.clips.reduce((a, c) => a + c.duration, 0);
   $("#sd-day-meta").textContent = sd.clips.length
-    ? `${sd.clips.length} clip${sd.clips.length > 1 ? "s" : ""} · ${fmtDur(total)} de vidéo` : "";
+    ? t`${sd.clips.length} clip${sd.clips.length > 1 ? "s" : ""} · ${fmtDur(total)} de vidéo` : "";
   $("#sd-empty").hidden = sd.clips.length > 0;
-  if (!sd.date) $("#sd-day-title").textContent = "Aucun enregistrement sur la carte";
+  if (!sd.date) $("#sd-day-title").textContent = t("Aucun enregistrement sur la carte");
 
   renderSdFilters();
   $("#sd-timeline").replaceChildren(...sd.clips.map((c) => h("button", {
     class: "tl-seg" + (c.type === 1 ? " cont" : "") + (c.cached ? " local" : "") + (c.analysis && c.analysis.animal ? " animal" : ""),
-    "data-id": c.id, title: `${c.time} · ${fmtDur(c.duration)}`, "aria-label": `Clip de ${c.time}`,
+    "data-id": c.id, title: `${c.time} · ${fmtDur(c.duration)}`, "aria-label": t`Clip de ${c.time}`,
     style: `left:${(100 * c.day_second / 86400).toFixed(3)}%;width:${(100 * c.duration / 86400).toFixed(3)}%`,
     onclick: () => openSdPlayer(c.id),
     onmouseenter: () => hotClip(c.id, true), onmouseleave: () => hotClip(c.id, false),
@@ -463,39 +465,39 @@ function hotClip(id, on) {
 
 function clipRow(c) {
   const job = c.job, busy = jobActive(job);
-  const tags = [h("span", { class: "tag " + (c.type === 1 ? "cont" : "det"), text: c.type_label })];
+  const tags = [h("span", { class: "tag " + (c.type === 1 ? "cont" : "det"), text: TapoI18n.label(c.type_label) })];
   const an = c.analysis;
   if (an && an.status === "done") {
     for (const d of an.detections) tags.push(h("button", {
       class: "tag " + (d.group === "animal" ? "animal" : "person"),
-      title: `${d.hits} images, vu de ${fmtDur(d.first)} à ${fmtDur(d.last)} - cliquer pour lire à cet instant`,
-      text: `${d.emoji} ${d.label}` + (d.group === "animal" && d.key !== "animal" ? ` ${Math.round(d.score * 100)} %` : ""),
+      title: t`${d.hits} images, vu de ${fmtDur(d.first)} à ${fmtDur(d.last)} - cliquer pour lire à cet instant`,
+      text: `${d.emoji} ${TapoI18n.label(d.label)}` + (d.group === "animal" && d.key !== "animal" ? ` ${Math.round(d.score * 100)} %` : ""),
       onclick: () => openSdPlayer(c.id, Math.max(0, d.first - 2)) }),
       untagButton(c.id, d, () => { an.detections = an.detections.filter((x) => x !== d);
         an.animal = an.detections.some((x) => x.group === "animal"); renderDay(); }));
-    if (!an.detections.length) tags.push(h("span", { class: "tag none", text: "analysé · rien" }));
-  } else if (an && an.status === "error") tags.push(h("span", { class: "tag err", text: "analyse : " + (an.error || "échec") }));
-  if (c.analyzing) tags.push(h("span", { class: "tag", text: c.analyzing === "running" ? "🔎 analyse en cours…" : "analyse en attente" }));
-  if (c.cached) tags.push(h("span", { class: "tag local", text: "copie locale" + (c.size ? " · " + fmtSize(c.size) : "") }));
-  if (job && job.state === "error") tags.push(h("span", { class: "tag err", text: job.error || "échec" }));
+    if (!an.detections.length) tags.push(h("span", { class: "tag none", text: t("analysé · rien") }));
+  } else if (an && an.status === "error") tags.push(h("span", { class: "tag err", text: t("analyse : ") + (TapoI18n.message(an.error) || t("échec")) }));
+  if (c.analyzing) tags.push(h("span", { class: "tag", text: c.analyzing === "running" ? t("🔎 analyse en cours…") : t("analyse en attente") }));
+  if (c.cached) tags.push(h("span", { class: "tag local", text: t("copie locale") + (c.size ? " · " + fmtSize(c.size) : "") }));
+  if (job && job.state === "error") tags.push(h("span", { class: "tag err", text: TapoI18n.message(job.error) || t("échec") }));
 
-  const actions = [h("button", { class: "btn", "data-act": "play", text: "▶ Lire", onclick: () => openSdPlayer(c.id) })];
+  const actions = [h("button", { class: "btn", "data-act": "play", text: t("▶ Lire"), onclick: () => openSdPlayer(c.id) })];
   if (c.cached) {
-    actions.push(h("a", { class: "btn ghost", "data-act": "dl", text: "⬇", title: "Télécharger le fichier MP4", "aria-label": "Télécharger",
+    actions.push(h("a", { class: "btn ghost", "data-act": "dl", text: "⬇", title: t("Télécharger le fichier MP4"), "aria-label": t("Télécharger"),
       href: `/api/sd/clips/${c.id}/download`, download: true }));
-    actions.push(h("button", { class: "btn ghost", "data-act": "del", text: "🗑", title: "Supprimer la copie locale (la carte SD n'est pas modifiée)",
-      "aria-label": "Supprimer la copie locale", onclick: () => deleteSdLocal(c.id) }));
+    actions.push(h("button", { class: "btn ghost", "data-act": "del", text: "🗑", title: t("Supprimer la copie locale (la carte SD n'est pas modifiée)"),
+      "aria-label": t("Supprimer la copie locale"), onclick: () => deleteSdLocal(c.id) }));
   } else if (busy) {
-    actions.push(h("button", { class: "btn ghost", "data-act": "cancel", text: "✕ Annuler", onclick: () => cancelSdJob(c.id) }));
+    actions.push(h("button", { class: "btn ghost", "data-act": "cancel", text: t("✕ Annuler"), onclick: () => cancelSdJob(c.id) }));
   } else {
-    actions.push(h("button", { class: "btn ghost", "data-act": "dl", text: "⬇", title: "Récupérer depuis la caméra puis télécharger",
-      "aria-label": "Télécharger", onclick: () => downloadSdClip(c.id) }));
+    actions.push(h("button", { class: "btn ghost", "data-act": "dl", text: "⬇", title: t("Récupérer depuis la caméra puis télécharger"),
+      "aria-label": t("Télécharger"), onclick: () => downloadSdClip(c.id) }));
   }
 
   const aniFrame = c.analysis && c.analysis.animal && c.analysis.frame;
   const img = h("img", { src: aniFrame ? `/api/sd/clips/${c.id}/animal` : `/api/sd/clips/${c.id}/thumb`, loading: "lazy", alt: "", width: 96, height: 54,
     onerror: (e) => retryThumb(e.target, c.id) });   // camera busy -> ask again; ▶ shows through meanwhile
-  const thumb = h("button", { class: "clip-thumb", "aria-label": `Lire le clip de ${c.time}`,
+  const thumb = h("button", { class: "clip-thumb", "aria-label": t`Lire le clip de ${c.time}`,
     onclick: () => openSdPlayer(c.id) }, h("span", { text: "▶" }), img);
 
   const row = h("div", { class: "clip" + (c.analysis && c.analysis.animal ? " ani" : ""), "data-id": c.id,
@@ -528,10 +530,10 @@ function retryThumb(img, id) {
 
 function jobText(job) {
   switch (job.state) {
-    case "queued": return "En file d'attente…";
-    case "connecting": return "Connexion à la caméra…";
-    case "streaming": return `Récupération depuis la caméra… ${fmtDur(job.progress)} / ${fmtDur(job.total)}`;
-    case "finalizing": return "Finalisation du MP4…";
+    case "queued": return t("En file d'attente…");
+    case "connecting": return t("Connexion à la caméra…");
+    case "streaming": return t`Récupération depuis la caméra… ${fmtDur(job.progress)} / ${fmtDur(job.total)}`;
+    case "finalizing": return t("Finalisation du MP4…");
     default: return "";
   }
 }
@@ -584,15 +586,15 @@ function applyJob(id, job) {
 function saveSdFile(id) {
   const a = h("a", { href: `/api/sd/clips/${id}/download`, download: true });
   document.body.append(a); a.click(); a.remove();
-  toast("Téléchargement du fichier MP4 lancé", "ok");
+  toast(t("Téléchargement du fichier MP4 lancé"), "ok");
 }
 
 async function downloadSdClip(id) {
   try {
     const job = await api(`/api/sd/clips/${id}/fetch?kind=download`, { method: "POST" });
     sd.wantFile.add(id);
-    if (!applyJob(id, job)) { toast("Récupération lancée : le fichier sera téléchargé à la fin."); startSdPolling(); }
-  } catch (e) { sd.wantFile.delete(id); toast(e.message, "err"); }
+    if (!applyJob(id, job)) { toast(t("Récupération lancée : le fichier sera téléchargé à la fin.")); startSdPolling(); }
+  } catch (e) { sd.wantFile.delete(id); toast(TapoI18n.message(e.message), "err"); }
 }
 
 async function cancelSdJob(id) {
@@ -603,13 +605,13 @@ async function cancelSdJob(id) {
 }
 
 async function deleteSdLocal(id) {
-  if (!confirm("Supprimer la copie locale de ce clip ?\n(L'enregistrement reste sur la carte SD de la caméra.)")) return;
+  if (!confirm(t("Supprimer la copie locale de ce clip ?\n(L'enregistrement reste sur la carte SD de la caméra.)"))) return;
   try {
     await api(`/api/sd/clips/${id}`, { method: "DELETE" });
     const c = sdClip(id);
     if (c) { c.cached = false; c.size = null; refreshClip(id); }
-    toast("Copie locale supprimée", "ok");
-  } catch (e) { toast(e.message, "err"); }
+    toast(t("Copie locale supprimée"), "ok");
+  } catch (e) { toast(TapoI18n.message(e.message), "err"); }
 }
 
 // ---- background polling of fetch jobs (list rows)
@@ -636,7 +638,7 @@ async function openSdPlayer(id, startAt = 0) {
   closeSdPlayer();
   sdSeekOnce(startAt);
   $("#modal-title").textContent = c.title ||
-    `Carte SD · ${sdDate(sd.date).toLocaleDateString("fr-FR")} ${c.time} (${fmtDur(c.duration)})`;
+    t`Carte SD · ${sdDate(sd.date).toLocaleDateString(TapoI18n.locale)} ${c.time} (${fmtDur(c.duration)})`;
   $("#modal").hidden = false;
   const pl = sd.player = { id, hls: null, timer: null, started: false, noHls: false, dead: false };
   setSdModalState(c, c.job);
@@ -652,22 +654,22 @@ async function openSdPlayer(id, startAt = 0) {
     onSdPlayerJob(pl, job);
     pollSdPlayer(pl);
   } catch (e) {
-    toast(e.message, "err");
+    toast(TapoI18n.message(e.message), "err");
     if (sd.player === pl) closePlayer();                  // a late failure of A must not close B
   }
 }
 
 function untagButton(clipId, d, after) {
-  return h("button", { class: "tag-x", title: `Ce n'est pas « ${d.label} » : retirer cette étiquette`,
-    "aria-label": `Retirer l'étiquette ${d.label}`, text: "✕",
+  return h("button", { class: "tag-x", title: t`Ce n'est pas « ${TapoI18n.label(d.label)} » : retirer cette étiquette`,
+    "aria-label": t`Retirer l'étiquette ${TapoI18n.label(d.label)}`, text: "✕",
     onclick: async (e) => {
       e.stopPropagation();
-      if (!confirm(`Retirer l'étiquette « ${d.label} » de cette vidéo ?`)) return;
+      if (!confirm(t`Retirer l'étiquette « ${TapoI18n.label(d.label)} » de cette vidéo ?`)) return;
       try {
         await api(`/api/sd/clips/${clipId}/untag?key=${encodeURIComponent(d.key)}`, { method: "POST" });
-        toast("Étiquette retirée", "ok");
+        toast(t("Étiquette retirée"), "ok");
         after();
-      } catch (err) { toast(err.message, "err"); }
+      } catch (err) { toast(TapoI18n.message(err.message), "err"); }
     } });
 }
 
@@ -695,15 +697,15 @@ function renderSdFilters() {
   }
   const chip = (key, text) => h("button", { class: "chip" + (sd.filter === key ? " on" : ""), text,
     "aria-pressed": sd.filter === key ? "true" : "false", onclick: () => { sd.filter = key; renderDay(); } });
-  const chips = [chip("all", `Tous ${sd.clips.length}`)];
-  if (counts.size) chips.push(chip("animals", `🐾 Animaux ${animals}`));
-  for (const [key, { n, d }] of counts) chips.push(chip(key, `${d.emoji} ${d.label} ${n}`));
+  const chips = [chip("all", t`Tous ${sd.clips.length}`)];
+  if (counts.size) chips.push(chip("animals", t`🐾 Animaux ${animals}`));
+  for (const [key, { n, d }] of counts) chips.push(chip(key, `${d.emoji} ${TapoI18n.label(d.label)} ${n}`));
   if (sd.filter !== "all" && sd.filter !== "animals" && !counts.has(sd.filter)) sd.filter = "all";
   $("#sd-filters").replaceChildren(...chips);
   const done = sd.clips.filter((c) => c.analysis && c.analysis.status === "done").length;
   const pending = sd.clips.filter((c) => c.analyzing).length;
-  $("#sd-analyze-status").textContent = pending ? `Analyse : ${done} / ${sd.clips.length} (reste ${pending})…`
-    : done ? `${done} / ${sd.clips.length} clips analysés` : "";
+  $("#sd-analyze-status").textContent = pending ? t`Analyse : ${done} / ${sd.clips.length} (reste ${pending})…`
+    : done ? t`${done} / ${sd.clips.length} clips analysés` : "";
   $("#btn-analyze").hidden = !sd.clips.length || (done === sd.clips.length && !pending);
   if (pending && !sd.aniTimer) sd.aniTimer = setInterval(refreshAnalysis, 6000);
   if (!pending && sd.aniTimer) { clearInterval(sd.aniTimer); sd.aniTimer = null; }
@@ -730,12 +732,12 @@ async function refreshAnalysis() {
 $("#btn-analyze").addEventListener("click", async () => {
   try {
     const st = await api("/api/sd/animals/status");
-    if (!st.available) { toast("Moteur d'analyse non installé : lancer ~/tapo-web/ml/setup.sh", "err"); return; }
+    if (!st.available) { toast(t("Moteur d'analyse non installé : lancer ~/tapo-web/ml/setup.sh"), "err"); return; }
     const r = await api(`/api/sd/animals/analyze?date=${sd.date}`, { method: "POST" });
-    toast(r.queued ? `${r.queued} clips en file d'analyse (≈ ${Math.ceil(r.queued * 25 / 60)} min, en arrière-plan)` : "Tout est déjà analysé", "ok");
+    toast(r.queued ? t`${r.queued} clips en file d'analyse (≈ ${Math.ceil(r.queued * 25 / 60)} min, en arrière-plan)` : t("Tout est déjà analysé"), "ok");
     refreshAnalysis();
     if (!sd.aniTimer) sd.aniTimer = setInterval(refreshAnalysis, 6000);
-  } catch (e) { toast(e.message, "err"); }
+  } catch (e) { toast(TapoI18n.message(e.message), "err"); }
 });
 
 function pollSdPlayer(pl) {
@@ -763,7 +765,7 @@ function onSdPlayerJob(pl, job) {
   const finished = applyJob(id, job);
   setSdModalState(sdClip(id), job);
   if (["error", "cancelled", "none"].includes(job.state)) {
-    if (job.state === "error") toast(job.error || "Échec de la récupération", "err");
+    if (job.state === "error") toast(TapoI18n.message(job.error) || t("Échec de la récupération"), "err");
     clearInterval(pl.timer); pl.timer = null;
     pl.dead = true;                                       // the server deleted the HLS output:
     if (pl.hls) { try { pl.hls.stopLoad(); } catch (e) {} }   // play out the buffer, never reload
@@ -812,7 +814,7 @@ function sdHlsGaveUp(pl) {
   const c = sdClip(pl.id);
   if (c && c.cached) { playSdFile(pl.id); return; }
   pl.started = false;                                     // onSdPlayerJob() plays the MP4 when done
-  $("#modal-fetch-text").textContent = "Lecture dès la fin de la récupération…";
+  $("#modal-fetch-text").textContent = t("Lecture dès la fin de la récupération…");
 }
 
 function setSdModalState(c, job) {
@@ -823,13 +825,13 @@ function setSdModalState(c, job) {
   btn.hidden = cached;
   const waiting = c && sd.wantFile.has(c.id);
   btn.disabled = !!waiting;
-  btn.textContent = waiting ? "⬇ Téléchargement à la fin de la récupération…" : "⬇ Télécharger";
+  btn.textContent = waiting ? t("⬇ Téléchargement à la fin de la récupération…") : t("⬇ Télécharger");
   const busy = jobActive(job);
   bar.hidden = !busy;
   if (busy) {
     $("#modal-fetch-fill").style.width = (job.total ? Math.min(100, 100 * job.progress / job.total) : 0) + "%";
     $("#modal-fetch-text").textContent = sd.player && sd.player.noHls
-      ? "Lecture dès la fin de la récupération… " + fmtDur(job.progress) + " / " + fmtDur(job.total) : jobText(job);
+      ? t("Lecture dès la fin de la récupération… ") + fmtDur(job.progress) + " / " + fmtDur(job.total) : jobText(job);
   }
 }
 
@@ -841,7 +843,7 @@ $("#modal-sd-download").addEventListener("click", async () => {
     sd.wantFile.add(pl.id);
     if (sd.player === pl) { pl.dead = false; onSdPlayerJob(pl, job); pollSdPlayer(pl); }   // (re)start this player's poll
     else { applyJob(pl.id, job); startSdPolling(); }
-  } catch (e) { toast(e.message, "err"); }
+  } catch (e) { toast(TapoI18n.message(e.message), "err"); }
 });
 
 function closeSdPlayer() {
@@ -868,22 +870,22 @@ async function loadAnimals() {
     const d = await api("/api/animals/species");
     ani.species = d.species || [];
     const st = d.status || {};
-    $("#ani-status").textContent = !st.available ? "Moteur d'analyse non installé (ml/setup.sh)"
-      : (st.current || st.queued) ? `Analyse automatique en cours - ${st.queued + (st.current ? 1 : 0)} clips en attente`
-      : d.auto ? "Analyse automatique active - tout est à jour" : "";
+    $("#ani-status").textContent = !st.available ? t("Moteur d'analyse non installé (ml/setup.sh)")
+      : (st.current || st.queued) ? t`Analyse automatique en cours - ${st.queued + (st.current ? 1 : 0)} clips en attente`
+      : d.auto ? t("Analyse automatique active - tout est à jour") : "";
     const total = ani.species.reduce((a, x) => a + x.count, 0);
     const item = (key, emoji, label, count, last) => h("button", {
       class: "ani-sp" + (ani.key === key ? " sel" : ""), "aria-pressed": ani.key === key ? "true" : "false",
       onclick: () => { ani.key = key; loadAnimals(); } },
       h("span", { class: "emo", text: emoji }),
-      h("span", {}, label, last ? h("small", { text: "vu le " + new Date(last * 1000).toLocaleDateString("fr-FR") }) : null),
+      h("span", {}, label, last ? h("small", { text: t("vu le ") + new Date(last * 1000).toLocaleDateString(TapoI18n.locale) }) : null),
       h("span", { class: "cnt", text: String(count) }));
     if (!ani.key) ani.key = (location.hash.split("/")[1] || "all");   // deep link: /#animals/mustelid
-    $("#ani-species").replaceChildren(item("all", "🐾", "Tous les animaux", total, 0),
-      ...ani.species.map((x) => item(x.key, x.emoji, x.label, x.count, x.last)));
+    $("#ani-species").replaceChildren(item("all", "🐾", t("Tous les animaux"), total, 0),
+      ...ani.species.map((x) => item(x.key, x.emoji, TapoI18n.label(x.label), x.count, x.last)));
     $("#ani-empty").hidden = ani.species.length > 0;
     await loadAnimalClips();
-  } catch (e) { toast(e.message, "err"); }
+  } catch (e) { toast(TapoI18n.message(e.message), "err"); }
 }
 
 async function loadAnimalClips() {
@@ -892,13 +894,13 @@ async function loadAnimalClips() {
   if (key !== ani.key) return;
   ani.clips = d.clips || [];
   const sp = ani.species.find((x) => x.key === key);
-  $("#ani-title").textContent = sp ? `${sp.emoji} ${sp.label}` : "🐾 Tous les animaux";
-  $("#ani-meta").textContent = ani.clips.length ? `${ani.clips.length} vidéo${ani.clips.length > 1 ? "s" : ""}` : "";
+  $("#ani-title").textContent = sp ? `${sp.emoji} ${TapoI18n.label(sp.label)}` : t("🐾 Tous les animaux");
+  $("#ani-meta").textContent = ani.clips.length ? t`${ani.clips.length} vidéo${ani.clips.length > 1 ? "s" : ""}` : "";
   const rows = [];
   let day = null;
   for (const c of ani.clips) {
     if (c.day !== day) { day = c.day; rows.push(h("div", { class: "clip-hour",
-      text: sdDate(c.day).toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric" }) })); }
+      text: sdDate(c.day).toLocaleDateString(TapoI18n.locale, { weekday: "long", day: "numeric", month: "long", year: "numeric" }) })); }
     rows.push(animalRow(c));
   }
   $("#ani-clips").replaceChildren(...rows);
@@ -908,17 +910,17 @@ function animalRow(c) {
   const play = (t) => playAnimalClip(c, t);
   const tags = c.detections.flatMap((d) => [h("button", {
     class: "tag " + (d.group === "animal" ? "animal" : "person"),
-    title: `${d.hits} images, vu de ${fmtDur(d.first)} à ${fmtDur(d.last)}`,
-    text: `${d.emoji} ${d.label}` + (d.group === "animal" && d.key !== "animal" ? ` ${Math.round(d.score * 100)} %` : ""),
+    title: t`${d.hits} images, vu de ${fmtDur(d.first)} à ${fmtDur(d.last)}`,
+    text: `${d.emoji} ${TapoI18n.label(d.label)}` + (d.group === "animal" && d.key !== "animal" ? ` ${Math.round(d.score * 100)} %` : ""),
     onclick: () => play(Math.max(0, d.first - 2)) }), untagButton(c.id, d, loadAnimals)]);
-  tags.push(h("span", { class: "tag " + (c.cached ? "local" : "none"), text: c.cached ? "copie locale" : "sur la carte SD" }));
+  tags.push(h("span", { class: "tag " + (c.cached ? "local" : "none"), text: c.cached ? t("copie locale") : t("sur la carte SD") }));
   const img = h("img", { src: c.frame ? `/api/sd/clips/${c.id}/animal` : `/api/sd/clips/${c.id}/thumb`, loading: "lazy", alt: "",
     onerror: (e) => e.target.remove() });
-  const actions = [h("button", { class: "btn", text: "▶ Lire", onclick: () => play(Math.max(0, c.first - 2)) })];
-  if (c.cached) actions.push(h("a", { class: "btn ghost", text: "⬇", "aria-label": "Télécharger", title: "Télécharger le MP4",
+  const actions = [h("button", { class: "btn", text: t("▶ Lire"), onclick: () => play(Math.max(0, c.first - 2)) })];
+  if (c.cached) actions.push(h("a", { class: "btn ghost", text: "⬇", "aria-label": t("Télécharger"), title: t("Télécharger le MP4"),
     href: `/api/sd/clips/${c.id}/download`, download: true }));
   return h("div", { class: "clip ani", "data-id": c.id },
-    h("button", { class: "clip-thumb", "aria-label": `Lire la vidéo du ${c.date} ${c.time}`, onclick: () => play(Math.max(0, c.first - 2)) },
+    h("button", { class: "clip-thumb", "aria-label": t`Lire la vidéo du ${c.date} ${c.time}`, onclick: () => play(Math.max(0, c.first - 2)) },
       h("span", { text: "▶" }), img),
     h("div", { class: "clip-main" },
       h("div", { class: "clip-time" }, `${c.date} · ${c.time}`, h("small", { text: fmtDur(c.duration) })),
@@ -956,12 +958,12 @@ async function syncRecordings() {
 async function openSetup() {
   try {
     const st = await api("/api/setup");
-    if (!st.can_edit) { toast("Les identifiants ne se modifient que depuis la machine qui héberge l'application.", "err"); return; }
+    if (!st.can_edit) { toast(t("Les identifiants ne se modifient que depuis la machine qui héberge l'application."), "err"); return; }
     const f = $("#setup-form");
     f.host.value = st.host || ""; f.subnet.value = st.subnet || ""; f.user.value = st.user || "";
     f.password.value = ""; f.cloud_password.value = "";
     $("#setup").hidden = false;
-  } catch (e) { toast(e.message, "err"); }
+  } catch (e) { toast(TapoI18n.message(e.message), "err"); }
 }
 $("#btn-settings").addEventListener("click", openSetup);
 $("#setup-close").addEventListener("click", () => ($("#setup").hidden = true));
@@ -972,10 +974,10 @@ $("#setup-form").addEventListener("submit", async (e) => {
   try {
     await api("/api/setup", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
     $("#setup").hidden = true;
-    toast("Identifiants enregistrés", "ok");
+    toast(t("Identifiants enregistrés"), "ok");
     await api("/api/discover", { method: "POST" }).catch(() => {});
     refreshStatus();
-  } catch (err) { toast(err.message, "err"); }
+  } catch (err) { toast(TapoI18n.message(err.message), "err"); }
 });
 api("/api/setup").then((st) => { if (st.needs_setup) openSetup(); }).catch(() => {});
 
