@@ -30,6 +30,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from . import camera, config
+from .control import create_control
 from .tapo_media import (BUSY_CODES, PLAYER_ID, ClipDemuxer, MediaError, MediaSession,
                          fetch_snapshot, stream_clip)
 from .tapo_v4 import TapoV4, TapoV4Error
@@ -86,7 +87,7 @@ def _api() -> TapoV4:
         raise SdError("TAPO_CLOUD_PASSWORD manquant dans .env (mot de passe du compte TP-Link).")
     with _client_lock:
         if _client is None or _client.host != host:
-            _client = TapoV4(host, config.CLOUD_PASSWORD, username="admin")
+            _client = create_control(host, config.CLOUD_PASSWORD, username="admin")
             _user_id = None
         return _client
 
