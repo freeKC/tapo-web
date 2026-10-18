@@ -6,6 +6,7 @@ lazily on first playlist request and reaped after a period of inactivity.
 """
 from __future__ import annotations
 
+import os
 import shutil
 import signal
 import subprocess
@@ -82,7 +83,10 @@ class _LiveStream:
             p = self.proc
             self.proc = None
         if p and p.poll() is None:
-            p.send_signal(signal.SIGINT)
+            if os.name == "nt":
+                p.terminate()
+            else:
+                p.send_signal(signal.SIGINT)
             try:
                 p.wait(timeout=5)
             except subprocess.TimeoutExpired:

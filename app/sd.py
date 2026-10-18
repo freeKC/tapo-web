@@ -23,6 +23,7 @@ import os
 import queue
 import re
 import shutil
+import socket
 import subprocess
 import threading
 import time
@@ -374,6 +375,35 @@ def cache_usage() -> dict:
 # --------------------------------------------------------------------------- #
 #  Fetch jobs
 # --------------------------------------------------------------------------- #
+class _AudioSocket:
+    """A local audio pipe for Windows, where pass_fds is unavailable.
+
+    Accept in the pump thread: ffmpeg probes video before opening audio.
+    """
+
+    def __init__(self):
+        self.listener = socket.socket()
+        self.listener.bind(("127.0.0.1", 0))
+        self.listener.listen(1)
+        self.listener.settimeout(30)
+        self.url = f"tcp://127.0.0.1:{self.listener.getsockname()[1]}"
+        self.connection = None
+
+    def write(self, chunk):
+        if not chunk:
+            return
+        if self.connection is None:
+            self.connection, _ = self.listener.accept()
+            self.connection.settimeout(30)
+            self.listener.close()
+        self.connection.sendall(chunk)
+
+    def close(self):
+        self.listener.close()
+        if self.connection is not None:
+            self.connection.close()
+
+
 class _Pump(threading.Thread):
     """Drains a queue into a pipe so the network reader never blocks on ffmpeg."""
 
@@ -444,12 +474,24 @@ class _Mux:
 
     def start(self, has_audio: bool, audio_offset: float):
         job = self.job
-        cmd = ["ffmpeg", "-nostdin", "-loglevel", "error", "-y", "-f", "mpegts", "-i", "pipe:0"]
+        # Bound probing on both inputs. With separate video/audio queues FFmpeg
+        # can otherwise wait for more video while the producer is blocked on
+        # a full audio queue, before FFmpeg has even opened the audio input.
+        cmd = ["ffmpeg", "-nostdin", "-loglevel", "error", "-y",
+               "-analyzeduration", "1000000", "-probesize", "262144",
+               "-f", "mpegts", "-i", "pipe:0"]
         a_r = a_w = None
+        audio_socket = None
         if has_audio:
-            a_r, a_w = os.pipe()
+            if os.name == "nt":
+                audio_socket = _AudioSocket()
+                audio_input = audio_socket.url
+            else:
+                a_r, a_w = os.pipe()
+                audio_input = f"pipe:{a_r}"
             cmd += ["-itsoffset", f"{audio_offset:.3f}",
-                    "-f", "alaw", "-ar", "8000", "-ac", "1", "-i", f"pipe:{a_r}"]
+                    "-analyzeduration", "0", "-probesize", "32",
+                    "-f", "alaw", "-ar", "8000", "-ac", "1", "-i", audio_input]
         maps = ["-map", "0:v:0"] + (["-map", "1:a:0"] if has_audio else [])
         codecs = ["-c:v", "copy"] + (["-c:a", "aac", "-ar", "16000", "-ac", "1", "-b:a", "48k"]
                                      if has_audio else [])
@@ -461,16 +503,21 @@ class _Mux:
         try:
             with open(self.log, "wb") as log:     # a file, not a PIPE nobody drains
                 self.proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL,
-                                             stderr=log, pass_fds=(a_r,) if has_audio else ())
+                                             stderr=log, pass_fds=(a_r,) if a_r is not None else ())
         except OSError as e:
+            if audio_socket is not None:
+                audio_socket.close()
             for fd in (a_r, a_w):
                 if fd is not None:
                     os.close(fd)
             raise SdError(f"Impossible de lancer ffmpeg : {e}") from e
         feeds = [("v", self.proc.stdin)]
         if has_audio:
-            os.close(a_r)                         # ffmpeg holds its own copy
-            feeds.append(("a", os.fdopen(a_w, "wb", buffering=0)))
+            if audio_socket is not None:
+                feeds.append(("a", audio_socket))
+            else:
+                os.close(a_r)                     # ffmpeg holds its own copy
+                feeds.append(("a", os.fdopen(a_w, "wb", buffering=0)))
         for kind, f in feeds:
             pump = _Pump(f)
             pump.q.put(bytes(self._pre[kind]))

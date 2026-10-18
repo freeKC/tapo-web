@@ -105,6 +105,29 @@ and only one connection at a time is opened to the camera since it does not like
 Useful settings in `.env`: `TAPO_DATA_DIR` (put the videos on another drive),
 `TAPO_ANALYZE_KEEP` (`all`, `animals` or `none`), `TAPO_ANALYZE_AUTO=0` to analyse only on demand.
 
+### Native Windows
+
+Install Python 3.12 and FFmpeg (including ffprobe) on PATH, then run:
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements-windows.txt
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\start.ps1
+```
+
+Double-click `start.bat` to start the server and open the default browser.
+The launcher reuses a running server and binds to 127.0.0.1 by default.
+Logs are in `logs/server.log` and `logs/server-error.log`. Override the bind
+address/port with `TAPO_WEB_HOST` / `TAPO_WEB_PORT` environment variables.
+Windows file access is governed by folder ACLs; Unix chmod does not provide
+owner-only credential permissions on Windows.
+
+SD audio uses a loopback TCP connection because Windows cannot inherit the
+extra file descriptor used on Linux. Input probing is bounded to prevent
+interleaved video/audio queues from stalling. Video remains stream-copied.
+The optional animal-detection environment still uses the Linux setup script;
+native Windows ML installation is not included here.
+
 ## Speed
 
 Clips come off the SD card at about 10x realtime (a 66 s clip in 7 s on my Wi-Fi) and playback
