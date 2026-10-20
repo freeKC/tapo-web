@@ -1,49 +1,109 @@
 # tapo-web
 
+[![tests](https://github.com/freeKC/tapo-web/actions/workflows/tests.yml/badge.svg)](https://github.com/freeKC/tapo-web/actions/workflows/tests.yml)
+[![version](https://img.shields.io/github/v/release/freeKC/tapo-web)](https://github.com/freeKC/tapo-web/releases)
+[![licence : MIT](https://img.shields.io/badge/licence-MIT-blue)](LICENSE)
+![Interface en anglais, français, allemand, espagnol, polonais](https://img.shields.io/badge/interface-EN%20%C2%B7%20FR%20%C2%B7%20DE%20%C2%B7%20ES%20%C2%B7%20PL-informational)
+
 [English version](README.md)
 
-Une petite appli web auto-hébergée pour les caméras TP-Link Tapo : le direct, un navigateur pour
-les vidéos de la carte SD, et une détection automatique des animaux. Au départ je voulais juste
-savoir qui vidait la gamelle du chat à 3 h du matin.
+**Vos caméras TP-Link Tapo dans le navigateur : le direct, les vidéos de leur carte SD, et une
+détection automatique des animaux. Tout reste sur votre réseau. Pas de cloud, pas de compte, pas
+d'abonnement.**
+
+Au départ je voulais juste savoir qui vidait la gamelle du chat à 3 h du matin.
 
 C'était une fouine.
 
 ![une fouine sur le toit, de nuit](docs/img/marten.jpg)
 
-Tout tourne sur mon PC et parle à la caméra par le réseau local. Pas de cloud, pas d'abonnement,
-rien ne sort de la maison.
-
 ## Ce que ça fait
 
-**Onglet Animaux.** Chaque clip enregistré par la caméra est téléchargé et analysé en tâche de
-fond. À gauche on choisit une espèce, à droite on a toutes les vidéos correspondantes, tous jours
-confondus, avec une image d'aperçu où l'animal est encadré. Un clic sur une étiquette lance la
-vidéo au moment où l'animal apparaît. Les vidéos sont gardées sur le disque, donc elles restent
-disponibles bien après que la carte SD a bouclé dessus.
+- **Toutes les caméras en direct**, une par une ou toutes sur le même écran, en HD ou en SD, avec
+  photo, enregistrement à la demande et DVR continu.
+- **La carte SD comme une vidéothèque.** Calendrier des jours enregistrés, frise sur 24 h, la
+  vignette de la caméra pour chaque clip. La lecture démarre au bout de deux secondes, et le
+  téléchargement va à environ 10 fois le temps réel, en MP4 normal, H.264 d'origine, sans
+  ré-encodage.
+- **La détection d'animaux** sur chaque clip, en tâche de fond, avec
+  [DeepFaune](https://www.deepfaune.cnrs.fr). On choisit une espèce et on a toutes ses vidéos,
+  tous jours confondus, avec une image où l'animal est encadré. Les clips sont gardés sur le
+  disque, donc ils restent là bien après que la carte a bouclé dessus.
+- **Les réglages de la caméra** sans l'appli Tapo : mode privé, voyant lumineux, projecteur,
+  suivi automatique, détection de mouvement et de personne avec leur sensibilité, vision
+  nocturne, orientation avec positions mémorisées. Chaque caméra ne montre que ce qu'elle sait
+  faire.
+- **Une installation qui trouve vos caméras.** Elle balaie le réseau, dit quel modèle et quel
+  firmware elle a trouvés, explique les deux comptes que la caméra demande, et teste la connexion.
+- **Compatible avec les firmwares récents** qui répondent `-40211` à pytapo, python-kasa et Home
+  Assistant. L'appli parle la nouvelle connexion (V4, SPAKE2+) et l'ancienne, et choisit toute
+  seule la bonne.
+- Tourne sous **Linux, WSL, Windows ou Docker**. L'interface existe en français, anglais,
+  allemand, espagnol et polonais.
 
-![onglet animaux](docs/img/animals.png)
+## Démarrage rapide
 
-**Onglet Carte SD.** Calendrier des jours enregistrés, frise sur 24 h, une ligne par clip avec la
-vignette fournie par la caméra. La lecture démarre au bout d'une ou deux secondes pendant que la
-suite arrive (la caméra envoie à environ 10 fois le temps réel). Le téléchargement donne un MP4
-normal, H.264 d'origine, sans ré-encodage.
+Il faut Python 3.12 et ffmpeg. Ensuite, au choix :
 
-![onglet carte sd](docs/img/sdcard.png)
+**Linux ou WSL** (avec [uv](https://github.com/astral-sh/uv), ou pip)
 
-**Onglet Live.** Le direct dans le navigateur (HLS), bascule HD/SD, photo, enregistrement à la
-demande, DVR continu par tranches de 10 minutes, et pilotage des modèles motorisés.
+```bash
+git clone https://github.com/freeKC/tapo-web && cd tapo-web
+uv venv .venv && uv pip install --python .venv/bin/python -r requirements.txt
+./start.sh            # puis ouvrir http://localhost:8088
+```
 
-![onglet live](docs/img/live.png)
+**Windows**
 
-## Pourquoi ce projet
+```powershell
+git clone https://github.com/freeKC/tapo-web; cd tapo-web
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements-windows.txt
+.\start.bat           # lance le serveur et ouvre le navigateur
+```
 
-Après une mise à jour du firmware, ma C510W (fw 1.3.4) a cessé de répondre à pytapo, python-kasa
-et à l'intégration Home Assistant : `error_code -40211` à chaque connexion. La caméra était passée
-à un nouveau protocole local (poignée de main SPAKE2+, puis un canal chiffré AES-CCM) que personne
-n'avait documenté. Je l'ai reconstitué et tout écrit ici :
-**[tapo-v4-protocol](https://github.com/freeKC/tapo-v4-protocol)**. L'appli est construite dessus.
+**Docker**
+
+```bash
+git clone https://github.com/freeKC/tapo-web && cd tapo-web
+mkdir -p config data && docker compose up -d --build
+```
+
+Les détails, Docker Desktop compris, sont dans [docs/DOCKER.md](docs/DOCKER.md) (en anglais).
+
+Au premier lancement, les réglages s'ouvrent tout seuls et cherchent les caméras sur le réseau.
+Il vous faut trois choses de l'appli Tapo :
+
+1. le **compte de la caméra** : dans l'appli Tapo, la caméra, puis ⚙, Paramètres avancés, Compte
+   de la caméra. Il sert au direct, aux enregistrements et à l'orientation ;
+2. le **mot de passe de votre compte TP-Link** (celui avec lequel vous vous connectez à l'appli
+   Tapo). La caméra le demande pour sa carte SD ;
+3. la **Compatibilité tierce** activée : Moi, Tapo Lab, Compatibilité tierce. Sans elle, les
+   firmwares récents refusent les connexions locales.
+
+Tout est gardé dans `cameras.json` sur votre machine, lisible par vous seul, et n'est envoyé qu'à
+vos caméras. Les réglages ne se modifient que depuis la machine qui fait tourner l'appli (ou les
+adresses listées dans `TAPO_ADMIN_HOSTS`).
+
+<p align="center">
+  <img src="docs/img/setup.png" width="420" alt="Les réglages au premier lancement : un mot de bienvenue, les caméras trouvées sur le réseau avec leur modèle, leur adresse et leur firmware, un bouton Ajouter pour chacune, et le mot de passe du compte TP-Link">
+  <img src="docs/img/settings.png" width="270" alt="Les flèches d'orientation avec Mémoriser la position, puis les réglages de la caméra : mode privé, voyant lumineux, projecteur, suivi automatique, détection de mouvement et de personne avec une sensibilité, vision nocturne">
+</p>
+
+## La carte SD
+
+Un calendrier des jours enregistrés, une frise sur 24 h et une ligne par clip avec la vignette
+fournie par la caméra. Des filtres selon ce que la caméra ou la détection a vu (animaux, une
+espèce, personnes, véhicules). La lecture démarre pendant que la suite du clip arrive. Le
+téléchargement donne un MP4 tout simple.
+
+![onglet carte SD](docs/img/sdcard.png)
+
+L'appli n'écrit et ne supprime jamais rien sur la carte.
 
 ## La détection d'animaux
+
+![onglet animaux](docs/img/animals.png)
 
 Elle utilise [DeepFaune](https://www.deepfaune.cnrs.fr) (CNRS), un modèle entraîné sur des pièges
 photo de faune européenne : renard, fouine et autres mustélidés, blaireau, hérisson, chat, chien,
@@ -59,67 +119,96 @@ Ce que j'ai dû ajouter pour que ce soit utilisable sur une caméra de jardin :
   assis sans bouger sur le muret reste un chat
 * les espèces qui n'ont aucun sens ici (le modèle a vu une vache sur ma terrasse) retombent sur une
   simple étiquette "animal"
+* une étiquette fausse se retire à la main, et le reste après une nouvelle analyse
 
-Sur une vieille GTX 1050, un clip d'une minute prend environ 16 secondes (moyenne sur 700 clips),
-une journée complète est donc traitée en moins de 20 minutes. Toute la chaîne, le pourquoi de
-chaque étape et les chiffres sont dans [docs/DETECTION.md](docs/DETECTION.md) (en anglais).
+Sur une vieille GTX 1050, un clip d'une minute prend environ 16 secondes, une journée complète est
+donc traitée en moins de 20 minutes. Ça marche aussi sur CPU, en plus lent. Sur mes 697 premiers
+clips : 418 sans rien du tout, 180 avec notre chien, et 5 avec la fouine. Voilà à quoi ça sert.
 
-Sur les 697 premiers clips : 418 sans rien du tout, 180 avec notre chien, et 5 avec la fouine.
-Voilà à quoi ça sert.
-
-Le modèle tourne dans son propre processus et son propre environnement Python, et s'arrête quand
-il n'a rien à faire. L'appli web reste légère. Ça marche aussi sur CPU, en plus lent.
-
-## Vitesse
-
-Les clips sortent de la carte SD à environ 10 fois le temps réel (un clip de 66 s en 7 s avec mon
-Wi-Fi) et la lecture démarre au bout de 2 ou 3 secondes. Les outils basés sur l'ancienne requête
-`playback` récupèrent le même clip à vitesse 1, donc une minute de vidéo prend une minute. La
-différence vient de la requête `download` du port média de la caméra, voir le dépôt du protocole.
-
-## Installation
-
-Il faut Python 3.12, ffmpeg et [uv](https://github.com/astral-sh/uv) (ou adaptez les commandes à pip).
-
-```bash
-git clone https://github.com/freeKC/tapo-web && cd tapo-web
-uv venv .venv && uv pip install --python .venv/bin/python -r requirements.txt
-./start.sh            # puis ouvrir http://localhost:8088
-```
-
-Au premier lancement l'appli demande les identifiants de la caméra dans le navigateur (roue
-dentée en haut à droite) :
-
-* le **compte caméra** créé dans l'appli Tapo (Paramètres avancés, Compte de la caméra). Il sert pour le direct et ONVIF.
-* le **mot de passe de votre compte TP-Link**. L'API de contrôle locale et le port média le réclament. Il n'est envoyé qu'à votre caméra.
-
-Ils sont enregistrés dans un fichier `.env` local, lisible par vous seul, et ignoré par git. Les
-réglages ne se modifient que depuis la machine qui fait tourner l'appli.
-
-Pour la détection d'animaux (facultatif, environ 8 Go avec PyTorch et les poids du modèle) :
+C'est facultatif (environ 8 Go avec PyTorch et les poids du modèle), et pour l'instant sous Linux
+seulement :
 
 ```bash
 ./ml/setup.sh
 ```
 
-Ensuite ça tourne tout seul. Les nouveaux clips sont pris en compte toutes les 10 minutes, et tout
-l'historique de la carte est traité petit à petit, du plus récent au plus ancien. La lecture passe
-toujours avant le travail de fond, et une seule connexion à la fois est ouverte vers la caméra,
-elle n'en supporte pas plus.
+Le modèle tourne dans son propre processus et son propre environnement Python, et s'arrête quand
+il n'a rien à faire. La lecture passe toujours avant le travail de fond. Toute la chaîne et les
+chiffres sont dans [docs/DETECTION.md](docs/DETECTION.md) (en anglais).
 
-Réglages utiles dans `.env` : `TAPO_DATA_DIR` (mettre les vidéos sur un autre disque),
-`TAPO_ANALYZE_KEEP` (`all`, `animals` ou `none`), `TAPO_ANALYZE_AUTO=0` pour n'analyser qu'à la demande.
+## Quelles caméras ?
+
+Testée ici avec une **C510W** en firmware 1.3.4, où tout fonctionne. Un contributeur l'utilise
+avec une **C520WS** (firmware 1.3.5, ancienne connexion), et les particularités de connexion de la
+C200 sont gérées. Les autres caméras Tapo sur secteur devraient marcher pareil : le direct et les
+enregistrements locaux n'ont besoin que du RTSP, qu'elles ont toutes.
+
+Ce qu'on sait déjà est dans [docs/CAMERAS.md](docs/CAMERAS.md). Si vous l'essayez avec un autre
+modèle, [dites-moi comment ça s'est passé](https://github.com/freeKC/tapo-web/issues/new?template=camera-report.yml),
+en bien ou en mal : les réglages ont un bouton « Copier le diagnostic » qui donne tout ce qu'il me
+faut, sans aucune adresse ni mot de passe.
+
+## Sur un téléphone, une télé ou un casque
+
+Mon autre appli, **[Immuch360](https://github.com/freeKC/Immuch360)**, se connecte elle aussi aux
+caméras Tapo. Elle les affiche en direct sur Android, Android TV, le Meta Quest et Windows, et
+liste les enregistrements de la carte SD jour par jour sur toutes les plateformes. Un clip se lit
+comme n'importe quelle vidéo et peut être envoyé sur votre serveur Immich. Même principe : elle ne
+parle qu'à la caméra, sur votre réseau, jamais aux serveurs de TP-Link.
+
+## Quand ça ne marche pas
+
+* **« Mot de passe du compte TP-Link refusé »** dans le test de connexion : vérifiez le mot de
+  passe et activez la Compatibilité tierce dans l'appli Tapo. N'essayez pas plusieurs mots de
+  passe à la suite : après quelques erreurs, la caméra bloque les connexions pendant une demi-heure
+  environ.
+* **La caméra n'est pas trouvée** : vérifiez le sous-réseau dans les réglages (les trois premiers
+  nombres de vos adresses, par exemple 192.168.1), ou indiquez l'adresse IP de la caméra. Sous WSL,
+  l'appli balaie le vrai réseau local et pas celui de WSL, d'où l'importance du sous-réseau.
+* **« Caméra occupée »** en lisant un clip : la caméra ne sert qu'une session vidéo à la fois, et
+  l'appli Tapo était sans doute ouverte dessus. Fermez-la et réessayez.
+* **`-40211` avec d'autres outils** : c'est la nouvelle connexion V4. Son fonctionnement est décrit
+  dans [tapo-v4-protocol](https://github.com/freeKC/tapo-v4-protocol), et pytapo la gère depuis la
+  version 3.4.20.
+
+## Pourquoi ce projet
+
+Après une mise à jour du firmware, ma C510W a cessé de répondre à pytapo, python-kasa et à
+l'intégration Home Assistant : `error_code -40211` à chaque connexion. La caméra était passée à un
+nouveau protocole local (poignée de main SPAKE2+, puis un canal chiffré AES-CCM) que personne
+n'avait documenté. Je l'ai reconstitué et tout écrit dans
+**[tapo-v4-protocol](https://github.com/freeKC/tapo-v4-protocol)**. L'appli est construite dessus,
+et ce travail a été repris dans pytapo, python-kasa et l'intégration Tapo Control pour Home
+Assistant.
+
+Les clips sortent de la carte SD à environ 10 fois le temps réel (un clip de 66 s en 7 s avec mon
+Wi-Fi). Les outils basés sur l'ancienne requête `playback` récupèrent le même clip à vitesse 1,
+donc une minute de vidéo prend une minute. La différence vient de la requête `download` du port
+média de la caméra.
+
+## Contribuer
+
+Signalements de bugs, retours sur une caméra, traductions et code sont les bienvenus. Le point de
+départ est [CONTRIBUTING.md](CONTRIBUTING.md) (en anglais) : lancer les tests (ils n'ont besoin
+d'aucune caméra), les règles pour tester sur une vraie, et comment ajouter une langue. Merci à
+[@uzior](https://github.com/uzior) pour Windows, l'ancienne connexion et l'interface en polonais.
+
+Réglages utiles dans `.env` (voir `.env.example`) : `TAPO_DATA_DIR` pour mettre les vidéos sur un
+autre disque, `TAPO_ANALYZE_KEEP` (`all`, `animals` ou `none`), `TAPO_ANALYZE_AUTO=0` pour
+n'analyser qu'à la demande.
 
 ## Remarques
 
-* Testé avec une Tapo C510W, firmware 1.3.4. Les autres Tapo récentes devraient marcher pareil. Dites-moi si c'est le cas chez vous, ou pas.
-* Tourne très bien sous WSL2. Si WSL s'endort quand on ferme le terminal, lancez l'appli depuis une tâche planifiée Windows.
-* `python -m pytest tests -q` lance les tests hors ligne (fausse caméra, faux port média).
-* L'appli n'écrit et ne supprime jamais rien sur la carte SD.
+* Tourne très bien sous WSL2. Si WSL s'endort quand on ferme le terminal, lancez l'appli depuis
+  une tâche planifiée Windows.
+* Il n'y a pas de mot de passe sur l'interface web : quiconque atteint le port peut regarder les
+  caméras. C'est pour ça que `start.sh` et `start.bat` n'écoutent que sur 127.0.0.1.
+* Sans lien avec TP-Link.
 
-Mots-clés : caméra Tapo C510W, C500, C210, C220, C100, C310, API locale TP-Link Tapo, erreur -40211,
-télécharger les vidéos de la carte SD Tapo sur PC, Tapo sans cloud, Tapo Home Assistant, caméra
-de surveillance animaux jardin, piège photo, détection fouine renard hérisson chat, DeepFaune.
+Mots-clés : caméra Tapo C510W, C500, C520WS, C200, C210, C220, C100, C110, C310, API locale TP-Link
+Tapo, erreur -40211, télécharger les vidéos de la carte SD Tapo sur PC, Tapo sans cloud, plusieurs
+caméras Tapo dans le navigateur, Tapo Home Assistant, caméra de surveillance animaux jardin, piège
+photo, détection fouine renard hérisson chat, DeepFaune, Docker.
 
-Licence MIT. Sans lien avec TP-Link. DeepFaune a sa propre licence (CeCILL, CC BY-SA pour les
-poids) et est téléchargé par le script d'installation, il n'est pas inclus ici.
+Licence MIT. DeepFaune a sa propre licence (CeCILL, CC BY-SA pour les poids) et est téléchargé par
+le script d'installation, il n'est pas inclus ici.

@@ -1027,6 +1027,7 @@ async function setCamSetting(body, control) {
 
 function renderCamSettings(v) {
   const row = (label, ...controls) => h("div", { class: "cam-setting" }, h("span", { text: t(label) }), h("span", { class: "row" }, ...controls));
+  const wide = (label, control) => h("label", { class: "cam-setting wide" }, h("span", { text: t(label) }), control);
   const rows = [];
   for (const [key, label] of SETTING_SWITCHES) {
     if (key in v) rows.push(row(label, switchInput(v[key], (on, el) => setCamSetting({ [key]: on }, el))));
@@ -1039,7 +1040,7 @@ function renderCamSettings(v) {
       switchInput(d.enabled, (on, el) => setCamSetting({ [key]: { enabled: on } }, el))));
   }
   for (const [key, [label, options]] of Object.entries(NIGHT_MODES)) {
-    if (v[key]) rows.push(row(label, choice(options, v[key], (m, el) => setCamSetting({ [key]: m }, el))));
+    if (v[key]) rows.push(wide(label, choice(options, v[key], (m, el) => setCamSetting({ [key]: m }, el))));
   }
   $("#cam-settings-body").replaceChildren(...rows);
   $("#cam-settings").hidden = !rows.length;
@@ -1187,6 +1188,7 @@ function showSetupList() {
   $("#setup-welcome").hidden = !d.needs_setup;
   $("#account-form").subnet.value = d.subnet || "";
   $("#account-form").cloud_password.value = "";
+  $("#account-form").cloud_password.placeholder = d.has_cloud_password ? t("laisser vide pour conserver") : "";
   $("#account-state").textContent = d.has_cloud_password ? t("enregistré") : t("pas encore enregistré");
   $("#cam-list").replaceChildren(...(state.cams.length ? state.cams.map((c) => h("div", { class: "cam-row" },
     h("span", { class: "dot " + (c.online ? "online" : "offline") }),
