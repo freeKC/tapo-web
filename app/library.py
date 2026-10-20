@@ -1,4 +1,7 @@
-"""The recordings library: index MP4 files, probe metadata, make thumbnails."""
+"""The recordings library: index MP4 files, probe metadata, make thumbnails.
+
+Every function takes the camera's recordings folder (Camera.recordings_dir).
+"""
 from __future__ import annotations
 
 import json
@@ -7,8 +10,6 @@ import subprocess
 import threading
 import time
 from pathlib import Path
-
-from . import config
 
 _SAFE = re.compile(r"^[A-Za-z0-9._-]+\.mp4$")
 _probe_cache: dict[str, dict] = {}
@@ -25,13 +26,19 @@ def safe_name(name: str) -> str | None:
     return name
 
 
-def resolve(name: str) -> Path | None:
+def _thumbs(root: Path) -> Path:
+    d = root / ".thumbs"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def resolve(root: Path, name: str) -> Path | None:
     sn = safe_name(name)
     if not sn:
         return None
-    p = (config.RECORDINGS_DIR / sn).resolve()
+    p = (root / sn).resolve()
     try:
-        p.relative_to(config.RECORDINGS_DIR.resolve())
+        p.relative_to(root.resolve())
     except ValueError:
         return None
     if not p.is_file():
@@ -42,7 +49,7 @@ def resolve(name: str) -> Path | None:
 def _probe(path: Path) -> dict:
     key = f"{path.name}:{path.stat().st_mtime_ns}:{path.stat().st_size}"
     with _probe_lock:
-        cached = _probe_cache.get(path.name)
+        cached = _probe_cache.get(str(path))
         if cached and cached.get("_key") == key:
             return cached
     info = {"_key": key, "duration": None, "width": None, "height": None}
@@ -64,15 +71,15 @@ def _probe(path: Path) -> dict:
     except (subprocess.SubprocessError, ValueError, json.JSONDecodeError):
         pass
     with _probe_lock:
-        _probe_cache[path.name] = info
+        _probe_cache[str(path)] = info
     return info
 
 
-def thumbnail(name: str) -> Path | None:
-    p = resolve(name)
+def thumbnail(root: Path, name: str) -> Path | None:
+    p = resolve(root, name)
     if not p:
         return None
-    thumb = config.THUMBS_DIR / (p.stem + ".jpg")
+    thumb = _thumbs(root) / (p.stem + ".jpg")
     if thumb.exists() and thumb.stat().st_mtime >= p.stat().st_mtime:
         return thumb
     try:
@@ -87,9 +94,9 @@ def thumbnail(name: str) -> Path | None:
     return thumb if thumb.exists() else None
 
 
-def listing() -> list[dict]:
+def listing(root: Path) -> list[dict]:
     items = []
-    for p in config.RECORDINGS_DIR.glob("*.mp4"):
+    for p in root.glob("*.mp4"):
         if not p.is_file():
             continue
         stat = p.stat()
@@ -114,16 +121,16 @@ def listing() -> list[dict]:
     return items
 
 
-def delete(name: str) -> bool:
-    p = resolve(name)
+def delete(root: Path, name: str) -> bool:
+    p = resolve(root, name)
     if not p:
         return False
-    thumb = config.THUMBS_DIR / (p.stem + ".jpg")
+    thumb = _thumbs(root) / (p.stem + ".jpg")
     try:
         p.unlink()
     except OSError:
         return False
     thumb.unlink(missing_ok=True)
     with _probe_lock:
-        _probe_cache.pop(p.name, None)
+        _probe_cache.pop(str(p), None)
     return True

@@ -54,7 +54,10 @@ class Recording:
 
 
 class Recorder:
-    def __init__(self):
+    """The recordings of one camera (see recorder_for())."""
+
+    def __init__(self, cam):
+        self.cam = cam
         self._active: dict[str, Recording] = {}
         self._lock = threading.Lock()
         self._counter = 0
@@ -72,8 +75,8 @@ class Recorder:
         stream_path = config.STREAMS.get(stream)
         if not stream_path:
             raise KeyError(stream)
-        out = config.RECORDINGS_DIR / f"{stream}_{self._stamp()}.mp4"
-        url = config.rtsp_url(host, stream_path)
+        out = self.cam.recordings_dir / f"{stream}_{self._stamp()}.mp4"
+        url = self.cam.rtsp_url(host, stream_path)
         cmd = [
             "ffmpeg", "-loglevel", "error",
             "-rtsp_transport", "tcp", "-i", url,
@@ -98,8 +101,8 @@ class Recorder:
             for r in self._active.values():
                 if r.kind == "continuous":
                     return r  # already running; single instance
-        url = config.rtsp_url(host, stream_path)
-        pattern = str(config.RECORDINGS_DIR / f"cont_{stream}_%Y%m%d_%H%M%S.mp4")
+        url = self.cam.rtsp_url(host, stream_path)
+        pattern = str(self.cam.recordings_dir / f"cont_{stream}_%Y%m%d_%H%M%S.mp4")
         cmd = [
             "ffmpeg", "-loglevel", "error",
             "-rtsp_transport", "tcp", "-i", url,
@@ -166,4 +169,5 @@ class Recorder:
             _finalize(r.proc)
 
 
-recorder = Recorder()
+def recorder_for(cam) -> Recorder:
+    return cam.service("recorder", lambda: Recorder(cam))

@@ -21,10 +21,11 @@ IDLE_TIMEOUT = 30.0
 
 
 class _LiveStream:
-    def __init__(self, key: str, stream_path: str):
+    def __init__(self, cam, key: str, stream_path: str):
+        self.cam = cam
         self.key = key
         self.stream_path = stream_path
-        self.dir: Path = config.HLS_DIR / key
+        self.dir: Path = cam.hls_dir / "live" / key
         self.proc: subprocess.Popen | None = None
         self.last_access = 0.0
         self.lock = threading.Lock()
@@ -38,7 +39,7 @@ class _LiveStream:
         if self.dir.exists():
             shutil.rmtree(self.dir, ignore_errors=True)
         self.dir.mkdir(parents=True, exist_ok=True)
-        url = config.rtsp_url(host, self.stream_path)
+        url = self.cam.rtsp_url(host, self.stream_path)
         cmd = [
             "ffmpeg", "-nostdin", "-loglevel", "error",
             "-fflags", "nobuffer", "-flags", "low_delay",
@@ -98,9 +99,13 @@ class _LiveStream:
 
 
 class LiveManager:
-    def __init__(self):
+    """The live streams of one camera (see live_for())."""
+
+    def __init__(self, cam):
+        self.cam = cam
         self._streams: dict[str, _LiveStream] = {}
         self._lock = threading.Lock()
+        self._closed = False
         self._reaper = threading.Thread(target=self._reap_loop, daemon=True)
         self._reaper.start()
 
@@ -111,7 +116,7 @@ class LiveManager:
         with self._lock:
             s = self._streams.get(key)
             if s is None:
-                s = _LiveStream(key, stream_path)
+                s = _LiveStream(self.cam, key, stream_path)
                 self._streams[key] = s
             return s
 
@@ -128,8 +133,11 @@ class LiveManager:
         if s:
             s.touch()
 
+    def running(self) -> list[str]:
+        return [k for k, s in list(self._streams.items()) if s.is_running()]
+
     def _reap_loop(self) -> None:
-        while True:
+        while not self._closed:
             time.sleep(5)
             now = time.time()
             for s in list(self._streams.values()):
@@ -137,8 +145,10 @@ class LiveManager:
                     s.stop()
 
     def stop_all(self) -> None:
+        self._closed = True
         for s in list(self._streams.values()):
             s.stop()
 
 
-live_manager = LiveManager()
+def live_for(cam) -> LiveManager:
+    return cam.service("live", lambda: LiveManager(cam))

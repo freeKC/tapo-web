@@ -16,12 +16,14 @@
     <span id="statustext">Recherche de la caméra…</span>
     <span class="meta" id="statusmeta"></span>
   </div>
-  <button class="btn ghost" id="btn-settings" title="Identifiants de la caméra">⚙</button>
+  <select class="lang-select cam-select" id="cam-select" aria-label="Caméra" hidden></select>
+  <button class="btn ghost" id="btn-settings" title="Réglages">⚙</button>
   <button class="btn ghost" id="btn-discover" title="Relocaliser la caméra">⟳ Rafraîchir</button>
   <select class="lang-select" id="lang-select" aria-label="Langue"></select>
 </header>
 
 <nav class="tabs">
+  <button class="tab" data-tab="wall" hidden>▦ Toutes</button>
   <button class="tab active" data-tab="live">Live</button>
   <button class="tab" data-tab="library">Bibliothèque</button>
   <button class="tab" data-tab="sd">Carte SD</button>
@@ -29,6 +31,11 @@
 </nav>
 
 <main>
+  <!-- ALL CAMERAS -->
+  <section class="panel" id="tab-wall">
+    <div class="wall" id="wall"></div>
+  </section>
+
   <!-- LIVE -->
   <section class="panel active" id="tab-live">
     <div class="live-grid">
@@ -181,21 +188,65 @@
   </div>
 </div>
 
-<!-- Settings / first-run -->
+<!-- Settings: cameras, TP-Link account, first-run assistant -->
 <div class="modal" id="setup" hidden>
-  <form class="modal-box setup-box" id="setup-form" autocomplete="off">
-    <div class="modal-head"><span>Connexion à la caméra</span>
-      <button type="button" class="btn ghost" id="setup-close">✕</button></div>
-    <div class="setup-body">
-      <p class="hint">Ces identifiants restent sur cette machine (fichier <code>.env</code>, lisible par vous seul). Ils ne sont jamais envoyés ailleurs qu'à votre caméra.</p>
-      <label>Adresse IP de la caméra (facultatif)<input name="host" placeholder="192.168.0.50" inputmode="decimal"></label>
-      <label>Sous-réseau à scanner<input name="subnet" placeholder="192.168.0"></label>
-      <label>Compte caméra - utilisateur <small>(appli Tapo → Paramètres avancés → Compte de la caméra)</small><input name="user" autocomplete="username"></label>
-      <label>Compte caméra - mot de passe<input name="password" type="password" autocomplete="new-password" placeholder="laisser vide pour conserver"></label>
-      <label>Mot de passe du compte TP-Link (cloud) <small>- requis pour la carte SD</small><input name="cloud_password" type="password" autocomplete="new-password" placeholder="laisser vide pour conserver"></label>
+  <div class="modal-box setup-box">
+    <div class="modal-head"><span id="setup-title">Réglages</span>
+      <button type="button" class="btn ghost" id="setup-close" aria-label="Fermer">✕</button></div>
+
+    <div class="setup-body" id="setup-list">
+      <div class="welcome" id="setup-welcome" hidden>
+        <b>Bienvenue !</b> Tapo Web cherche vos caméras sur le réseau. Choisissez la vôtre ci-dessous, ou ajoutez-la à la main.
+      </div>
+      <h4>Caméras</h4>
+      <div class="cam-list" id="cam-list"></div>
+      <div class="row">
+        <button class="btn" type="button" id="btn-cam-scan">🔎 Chercher sur le réseau</button>
+        <button class="btn ghost" type="button" id="btn-cam-add">+ Ajouter à la main</button>
+      </div>
+      <div class="cam-list" id="scan-results"></div>
+
+      <form id="account-form" autocomplete="off">
+        <h4>Compte TP-Link <small id="account-state"></small></h4>
+        <p class="hint">Le mot de passe de votre compte dans l'appli Tapo. Les caméras le demandent pour lire leur carte SD, il est le même pour toutes les caméras du compte.</p>
+        <label>Mot de passe du compte TP-Link<input name="cloud_password" type="password" autocomplete="new-password" placeholder="laisser vide pour conserver"></label>
+        <label>Sous-réseau des caméras<input name="subnet" placeholder="192.168.0"></label>
+        <div class="modal-actions"><button class="btn" type="submit">Enregistrer</button></div>
+      </form>
+      <p class="hint">Ces identifiants restent sur cette machine (fichier <code>cameras.json</code>, lisible par vous seul). Ils ne sont jamais envoyés ailleurs qu'à vos caméras.</p>
     </div>
-    <div class="modal-actions"><button class="btn" type="submit">Enregistrer</button></div>
-  </form>
+
+    <form class="setup-body" id="cam-form" autocomplete="off" hidden>
+      <p class="hint" id="cam-form-intro"></p>
+      <input type="hidden" name="mac"><input type="hidden" name="model">
+      <label>Nom<input name="name" placeholder="Jardin"></label>
+      <label>Adresse IP de la caméra (facultatif)<input name="host" placeholder="192.168.0.50" inputmode="decimal"></label>
+      <fieldset>
+        <legend>Compte de la caméra</legend>
+        <p class="hint">À créer dans l'appli Tapo : la caméra → ⚙ → Paramètres avancés → Compte de la caméra. Il sert au live et à l'orientation.</p>
+        <label>Utilisateur<input name="user" autocomplete="username"></label>
+        <label>Mot de passe<input name="password" type="password" autocomplete="new-password"></label>
+      </fieldset>
+      <fieldset>
+        <legend>Compte TP-Link</legend>
+        <p class="hint">Le mot de passe de l'appli Tapo, pour la carte SD. Pour que la caméra l'accepte en local, activez « Compatibilité tierce » dans l'appli Tapo : Moi → Tapo Lab → Compatibilité tierce.</p>
+        <label>Mot de passe du compte TP-Link<input name="cloud_password" type="password" autocomplete="new-password"></label>
+        <label class="check-line"><input type="checkbox" name="other_account"> Cette caméra est sur un autre compte TP-Link</label>
+      </fieldset>
+      <label>Protocole de connexion<select name="protocol">
+        <option value="auto">Automatique</option>
+        <option value="4">V4 (firmwares récents)</option>
+        <option value="3">Type 3 (firmwares plus anciens)</option>
+      </select></label>
+      <div class="check-results" id="check-results"></div>
+      <div class="modal-actions">
+        <button type="button" class="btn ghost" id="cam-form-back">← Retour</button>
+        <button type="button" class="btn ghost" id="cam-form-diag" hidden>📋 Copier le diagnostic</button>
+        <button type="button" class="btn ghost" id="cam-form-test" hidden>🔌 Tester la connexion</button>
+        <button class="btn" type="submit">Enregistrer</button>
+      </div>
+    </form>
+  </div>
 </div>
 
 <div class="toast" id="toast" hidden></div>

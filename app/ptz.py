@@ -43,8 +43,8 @@ def _wsse(user: str, pw: str) -> str:
     ).format(u=user, d=digest, n=b64nonce, c=created)
 
 
-def _soap(host: str, body: str, *, auth: bool = True, timeout: float = 8.0) -> str | None:
-    header = _wsse(config.CAM_USER, config.CAM_PASSWORD) if auth else ""
+def _soap(cam, host: str, body: str, *, auth: bool = True, timeout: float = 8.0) -> str | None:
+    header = _wsse(cam.cfg.user, cam.cfg.password) if auth else ""
     envelope = (
         '<?xml version="1.0" encoding="UTF-8"?>'
         '<s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope" '
@@ -65,9 +65,9 @@ def _soap(host: str, body: str, *, auth: bool = True, timeout: float = 8.0) -> s
         return None
 
 
-def onvif_device_information(host: str) -> dict | None:
+def onvif_device_information(cam, host: str) -> dict | None:
     body = "<tds:GetDeviceInformation/>"
-    xml = _soap(host, body)
+    xml = _soap(cam, host, body)
     if not xml:
         return None
     try:
@@ -86,10 +86,10 @@ def onvif_device_information(host: str) -> dict | None:
 _ptz_token_cache: dict[str, str] = {}
 
 
-def _profile_token(host: str) -> str | None:
+def _profile_token(cam, host: str) -> str | None:
     if host in _ptz_token_cache:
         return _ptz_token_cache[host]
-    xml = _soap(host, "<trt:GetProfiles xmlns:trt=\"http://www.onvif.org/ver10/media/wsdl\"/>")
+    xml = _soap(cam, host, "<trt:GetProfiles xmlns:trt=\"http://www.onvif.org/ver10/media/wsdl\"/>")
     if not xml:
         return None
     try:
@@ -116,10 +116,10 @@ _MOVES = {
 }
 
 
-def ptz_move(host: str, direction: str, duration: float = 0.6) -> bool:
+def ptz_move(cam, host: str, direction: str, duration: float = 0.6) -> bool:
     if direction not in _MOVES:
         return False
-    token = _profile_token(host)
+    token = _profile_token(cam, host)
     if not token:
         return False
     x, y = _MOVES[direction]
@@ -128,24 +128,24 @@ def ptz_move(host: str, direction: str, duration: float = 0.6) -> bool:
         f'<tptz:Velocity><tt:PanTilt x="{x}" y="{y}" '
         'xmlns:tt="http://www.onvif.org/ver10/schema"/></tptz:Velocity></tptz:ContinuousMove>'
     )
-    if _soap(host, body) is None:
+    if _soap(cam, host, body) is None:
         return False
     # Auto-stop after a short nudge so a click = a small step.
     time.sleep(min(duration, 2.0))
-    ptz_stop(host)
+    ptz_stop(cam, host)
     return True
 
 
-def ptz_stop(host: str) -> bool:
-    token = _profile_token(host)
+def ptz_stop(cam, host: str) -> bool:
+    token = _profile_token(cam, host)
     if not token:
         return False
     body = (
         f'<tptz:Stop><tptz:ProfileToken>{token}</tptz:ProfileToken>'
         '<tptz:PanTilt>true</tptz:PanTilt><tptz:Zoom>true</tptz:Zoom></tptz:Stop>'
     )
-    return _soap(host, body) is not None
+    return _soap(cam, host, body) is not None
 
 
-def ptz_available(host: str) -> bool:
-    return _profile_token(host) is not None
+def ptz_available(cam, host: str) -> bool:
+    return _profile_token(cam, host) is not None

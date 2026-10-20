@@ -6,6 +6,9 @@ const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => Array.from(document.querySelectorAll(sel));
 
 const state = {
+  cam: null,             // id of the selected camera (every camera route lives under /cams/<id>/)
+  cams: [],
+  setup: null,
   stream: "hd",
   hls: null,
   liveOn: false,
@@ -15,6 +18,8 @@ const state = {
 };
 
 // ---------- helpers ----------
+const P = () => (state.cam ? `/cams/${encodeURIComponent(state.cam)}` : "");
+
 async function api(path, opts) {
   const res = await fetch(path, opts);
   let body = null;
@@ -61,6 +66,7 @@ function showTab(name) {
   $$(".panel").forEach((p) => p.classList.remove("active"));
   tab.classList.add("active");
   $("#tab-" + name).classList.add("active");
+  if (name === "wall") startWall(); else stopWall();
   if (name === "library") loadLibrary();
   if (name === "sd") loadSd();
   if (name === "animals") loadAnimals();
@@ -74,8 +80,10 @@ $$(".tab").forEach((tab) => {
 
 // ---------- status ----------
 async function refreshStatus() {
+  const cam = state.cam;
   try {
-    const s = await api("/api/status");
+    const s = await api(P() + "/api/status");
+    if (cam !== state.cam) return;           // another camera was picked meanwhile
     state.online = s.online;
     state.ptz = s.ptz;
     $("#statusdot").className = "dot " + (s.online ? "online" : "offline");
@@ -89,15 +97,16 @@ async function refreshStatus() {
     $("#cont-toggle").checked = !!s.continuous;
     $("#cont-label").textContent = s.continuous ? t("Activé") : t("Désactivé");
   } catch (e) {
+    if (cam !== state.cam) return;
     $("#statusdot").className = "dot offline";
-    $("#statustext").textContent = t("Erreur de statut");
+    $("#statustext").textContent = state.cams.length ? t("Erreur de statut") : TapoI18n.message(e.message);
   }
 }
 
 $("#btn-discover").addEventListener("click", async () => {
   $("#statustext").textContent = t("Recherche…");
   try {
-    await api("/api/discover", { method: "POST" });
+    await api(P() + "/api/discover", { method: "POST" });
   } catch (e) { toast(TapoI18n.message(e.message), "err"); }
   refreshStatus();
 });
@@ -115,7 +124,7 @@ $("#stream-seg").addEventListener("click", (e) => {
 // ---------- live ----------
 function startLive() {
   const video = $("#live");
-  const url = `/live/${state.stream}/index.m3u8`;
+  const url = `${P()}/live/${state.stream}/index.m3u8`;
   stopHls();
   if (window.Hls && Hls.isSupported()) {
     const hls = new Hls({ lowLatencyMode: true, liveSyncDurationCount: 2, maxBufferLength: 6 });
@@ -151,7 +160,7 @@ function stopLive() {
   video.load();
   state.liveOn = false;
   $("#live-overlay").hidden = false;
-  api(`/api/live/${state.stream}/stop`, { method: "POST" }).catch(() => {});
+  api(`${P()}/api/live/${state.stream}/stop`, { method: "POST" }).catch(() => {});
 }
 $("#btn-play").addEventListener("click", startLive);
 $("#btn-live-start").addEventListener("click", startLive);
@@ -161,7 +170,7 @@ $("#btn-live-stop").addEventListener("click", stopLive);
 $("#btn-snap").addEventListener("click", async () => {
   toast(t("Capture…"));
   try {
-    const res = await fetch(`/api/snapshot?stream=${state.stream}`);
+    const res = await fetch(`${P()}/api/snapshot?stream=${state.stream}`);
     if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || t("échec"));
     const blob = await res.blob();
     const url = URL.createObjectURL(blob);
@@ -177,7 +186,7 @@ $("#btn-snap").addEventListener("click", async () => {
 // ---------- manual recording ----------
 $("#btn-rec-start").addEventListener("click", async () => {
   try {
-    const r = await api(`/api/record/start?stream=${state.stream}`, { method: "POST" });
+    const r = await api(`${P()}/api/record/start?stream=${state.stream}`, { method: "POST" });
     state.manualRecId = r.id;
     $("#btn-rec-start").disabled = true;
     $("#btn-rec-stop").disabled = false;
@@ -189,7 +198,7 @@ $("#btn-rec-start").addEventListener("click", async () => {
 $("#btn-rec-stop").addEventListener("click", async () => {
   if (!state.manualRecId) return;
   try {
-    await api(`/api/record/stop?id=${encodeURIComponent(state.manualRecId)}`, { method: "POST" });
+    await api(`${P()}/api/record/stop?id=${encodeURIComponent(state.manualRecId)}`, { method: "POST" });
     toast(t("Enregistrement arrêté"), "ok");
   } catch (e) { toast(TapoI18n.message(e.message), "err"); }
   state.manualRecId = null;
@@ -203,8 +212,8 @@ $("#btn-rec-stop").addEventListener("click", async () => {
 $("#cont-toggle").addEventListener("change", async (e) => {
   const on = e.target.checked;
   try {
-    if (on) await api(`/api/continuous/start?stream=${state.stream}`, { method: "POST" });
-    else await api(`/api/continuous/stop`, { method: "POST" });
+    if (on) await api(`${P()}/api/continuous/start?stream=${state.stream}`, { method: "POST" });
+    else await api(`${P()}/api/continuous/stop`, { method: "POST" });
     $("#cont-label").textContent = on ? t("Activé") : t("Désactivé");
     toast(on ? t("DVR continu activé") : t("DVR continu arrêté"), "ok");
   } catch (err) {
@@ -216,7 +225,7 @@ $("#cont-toggle").addEventListener("change", async (e) => {
 // ---------- PTZ ----------
 $$(".ptzpad button[data-dir]").forEach((b) => {
   b.addEventListener("click", async () => {
-    try { await api(`/api/ptz?direction=${b.dataset.dir}`, { method: "POST" }); }
+    try { await api(`${P()}/api/ptz?direction=${b.dataset.dir}`, { method: "POST" }); }
     catch (e) { toast(TapoI18n.message(e.message), "err"); }
   });
 });
@@ -224,8 +233,10 @@ $$(".ptzpad button[data-dir]").forEach((b) => {
 // ---------- library ----------
 async function loadLibrary() {
   const grid = $("#lib-grid");
+  const cam = state.cam;
   try {
-    const data = await api("/api/recordings");
+    const data = await api(P() + "/api/recordings");
+    if (cam !== state.cam) return;
     const recs = data.recordings || [];
     $("#lib-empty").hidden = recs.length > 0;
     grid.innerHTML = "";
@@ -238,7 +249,7 @@ function card(r) {
   el.className = "card";
   const res = r.width && r.height ? `${r.width}×${r.height}` : "";
   el.innerHTML = `
-    <div class="thumb" style="background-image:url('/api/recordings/${encodeURIComponent(r.name)}/thumb')">
+    <div class="thumb" style="background-image:url('${P()}/api/recordings/${encodeURIComponent(r.name)}/thumb')">
       <span class="badge ${r.kind}">${r.kind === "continuous" ? "DVR" : t("Manuel")}</span>
       ${r.duration != null ? `<span class="dur">${fmtDur(r.duration)}</span>` : ""}
     </div>
@@ -249,7 +260,7 @@ function card(r) {
       </div>
       <div class="actions">
         <button class="btn play">${t("▶ Lire")}</button>
-        <a class="btn ghost dl" href="/api/recordings/${encodeURIComponent(r.name)}/download">⬇</a>
+        <a class="btn ghost dl" href="${P()}/api/recordings/${encodeURIComponent(r.name)}/download">⬇</a>
         <button class="btn danger del">🗑</button>
       </div>
     </div>`;
@@ -258,7 +269,7 @@ function card(r) {
   el.querySelector(".del").addEventListener("click", async () => {
     if (!confirm(t`Supprimer ${r.name} ?`)) return;
     try {
-      await api(`/api/recordings/${encodeURIComponent(r.name)}`, { method: "DELETE" });
+      await api(`${P()}/api/recordings/${encodeURIComponent(r.name)}`, { method: "DELETE" });
       toast(t("Supprimé"), "ok");
       loadLibrary();
     } catch (e) { toast(TapoI18n.message(e.message), "err"); }
@@ -272,8 +283,8 @@ $("#btn-lib-refresh").addEventListener("click", loadLibrary);
 function openPlayer(name) {
   $("#modal-title").textContent = name;
   const p = $("#player");
-  p.src = `/api/recordings/${encodeURIComponent(name)}/play`;
-  $("#modal-download").href = `/api/recordings/${encodeURIComponent(name)}/download`;
+  p.src = `${P()}/api/recordings/${encodeURIComponent(name)}/play`;
+  $("#modal-download").href = `${P()}/api/recordings/${encodeURIComponent(name)}/download`;
   $("#modal-download").hidden = false;
   $("#modal-sd-download").hidden = true;
   $("#modal-fetch").hidden = true;
@@ -327,11 +338,15 @@ async function loadSd(force = false) {
   card.className = "sd-card";
   card.textContent = t("Connexion à la caméra…");
   const q = force ? "?force=true" : "";
+  const cam = state.cam;
   try {
-    const st = await api("/api/sd/status" + q);
+    const st = await api(P() + "/api/sd/status" + q);
+    if (cam !== state.cam) return;           // another camera was picked meanwhile
     renderSdCard(st);
     if (!st.available) { $("#sd-layout").hidden = true; return; }
-    sd.days = (await api("/api/sd/days" + q)).days || [];
+    const days = (await api(P() + "/api/sd/days" + q)).days || [];
+    if (cam !== state.cam) return;
+    sd.days = days;
     $("#sd-layout").hidden = false;
     if (!sd.days.length) {
       sd.date = null; sd.clips = [];
@@ -340,10 +355,11 @@ async function loadSd(force = false) {
     }
     if (!sd.date || !sd.days.includes(sd.date)) sd.date = sd.days[sd.days.length - 1];
     sd.month = sd.date.slice(0, 6);
-    api("/api/sd/animals/days").then((d) => { sd.aniDays = d.days || {}; renderCalendar(); }).catch(() => {});
+    api(P() + "/api/sd/animals/days").then((d) => { sd.aniDays = d.days || {}; renderCalendar(); }).catch(() => {});
     renderCalendar();
     await loadDay(sd.date, force);
   } catch (e) {
+    if (cam !== state.cam) return;
     $("#sd-layout").hidden = true;
     card.className = "sd-card err";
     card.replaceChildren(
@@ -419,7 +435,7 @@ async function loadDay(date, force = false) {
   renderDay();
   $("#sd-empty").hidden = true;
   try {
-    const data = await api(`/api/sd/recordings?date=${date}` + (force ? "&force=true" : ""));
+    const data = await api(`${P()}/api/sd/recordings?date=${date}` + (force ? "&force=true" : ""));
     if (date !== sd.date) return;            // the user already picked another day
     sd.clips = data.clips || [];
     renderDay();
@@ -484,7 +500,7 @@ function clipRow(c) {
   const actions = [h("button", { class: "btn", "data-act": "play", text: t("▶ Lire"), onclick: () => openSdPlayer(c.id) })];
   if (c.cached) {
     actions.push(h("a", { class: "btn ghost", "data-act": "dl", text: "⬇", title: t("Télécharger le fichier MP4"), "aria-label": t("Télécharger"),
-      href: `/api/sd/clips/${c.id}/download`, download: true }));
+      href: `${P()}/api/sd/clips/${c.id}/download`, download: true }));
     actions.push(h("button", { class: "btn ghost", "data-act": "del", text: "🗑", title: t("Supprimer la copie locale (la carte SD n'est pas modifiée)"),
       "aria-label": t("Supprimer la copie locale"), onclick: () => deleteSdLocal(c.id) }));
   } else if (busy) {
@@ -495,7 +511,7 @@ function clipRow(c) {
   }
 
   const aniFrame = c.analysis && c.analysis.animal && c.analysis.frame;
-  const img = h("img", { src: aniFrame ? `/api/sd/clips/${c.id}/animal` : `/api/sd/clips/${c.id}/thumb`, loading: "lazy", alt: "", width: 96, height: 54,
+  const img = h("img", { src: aniFrame ? `${P()}/api/sd/clips/${c.id}/animal` : `${P()}/api/sd/clips/${c.id}/thumb`, loading: "lazy", alt: "", width: 96, height: 54,
     onerror: (e) => retryThumb(e.target, c.id) });   // camera busy -> ask again; ▶ shows through meanwhile
   const thumb = h("button", { class: "clip-thumb", "aria-label": t`Lire le clip de ${c.time}`,
     onclick: () => openSdPlayer(c.id) }, h("span", { text: "▶" }), img);
@@ -524,7 +540,7 @@ function retryThumb(img, id) {
   setTimeout(() => {
     if (!img.isConnected) return;
     img.onload = () => { img.style.visibility = ""; };
-    img.src = `/api/sd/clips/${id}/thumb?r=${n}`;
+    img.src = `${P()}/api/sd/clips/${id}/thumb?r=${n}`;
   }, 3000 * n);
 }
 
@@ -571,7 +587,7 @@ function applyJob(id, job) {
     if (finished && !was) {
       // pick up the file size for the "copie locale" tag (sizes are read from the local
       // disk on every call: no need to force a new camera listing)
-      api(`/api/sd/recordings?date=${sd.date}`).then((d) => {
+      api(`${P()}/api/sd/recordings?date=${sd.date}`).then((d) => {
         const fresh = (d.clips || []).find((x) => x.id === id);
         if (fresh && sdClip(id)) { sdClip(id).size = fresh.size; refreshClip(id); }
       }).catch(() => {});
@@ -579,19 +595,19 @@ function applyJob(id, job) {
   }
   if (finished && sd.wantFile.delete(id)) saveSdFile(id);
   if (["error", "cancelled", "none"].includes(job.state)) sd.wantFile.delete(id);   // never poll forever
-  if (finished) api("/api/sd/status").then(renderSdCard).catch(() => {});            // local-copies counter
+  if (finished) api(P() + "/api/sd/status").then(renderSdCard).catch(() => {});            // local-copies counter
   return finished;
 }
 
 function saveSdFile(id) {
-  const a = h("a", { href: `/api/sd/clips/${id}/download`, download: true });
+  const a = h("a", { href: `${P()}/api/sd/clips/${id}/download`, download: true });
   document.body.append(a); a.click(); a.remove();
   toast(t("Téléchargement du fichier MP4 lancé"), "ok");
 }
 
 async function downloadSdClip(id) {
   try {
-    const job = await api(`/api/sd/clips/${id}/fetch?kind=download`, { method: "POST" });
+    const job = await api(`${P()}/api/sd/clips/${id}/fetch?kind=download`, { method: "POST" });
     sd.wantFile.add(id);
     if (!applyJob(id, job)) { toast(t("Récupération lancée : le fichier sera téléchargé à la fin.")); startSdPolling(); }
   } catch (e) { sd.wantFile.delete(id); toast(TapoI18n.message(e.message), "err"); }
@@ -599,7 +615,7 @@ async function downloadSdClip(id) {
 
 async function cancelSdJob(id) {
   sd.wantFile.delete(id);
-  try { await api(`/api/sd/clips/${id}/cancel`, { method: "POST" }); } catch (e) {}
+  try { await api(`${P()}/api/sd/clips/${id}/cancel`, { method: "POST" }); } catch (e) {}
   const c = sdClip(id);
   if (c) { c.job = null; refreshClip(id); }
 }
@@ -607,7 +623,7 @@ async function cancelSdJob(id) {
 async function deleteSdLocal(id) {
   if (!confirm(t("Supprimer la copie locale de ce clip ?\n(L'enregistrement reste sur la carte SD de la caméra.)"))) return;
   try {
-    await api(`/api/sd/clips/${id}`, { method: "DELETE" });
+    await api(`${P()}/api/sd/clips/${id}`, { method: "DELETE" });
     const c = sdClip(id);
     if (c) { c.cached = false; c.size = null; refreshClip(id); }
     toast(t("Copie locale supprimée"), "ok");
@@ -625,7 +641,7 @@ async function pollSdJobs() {
   if (!tracked.length) { clearInterval(sd.pollTimer); sd.pollTimer = null; return; }
   for (const id of tracked) {
     if (sd.player && sd.player.id === id) continue;      // the player polls this one itself
-    try { applyJob(id, await api(`/api/sd/clips/${id}/job`)); } catch (e) {}
+    try { applyJob(id, await api(`${P()}/api/sd/clips/${id}/job`)); } catch (e) {}
   }
 }
 
@@ -644,7 +660,7 @@ async function openSdPlayer(id, startAt = 0) {
   setSdModalState(c, c.job);
   if (c.cached) { playSdFile(id); return; }
   try {
-    const job = await api(`/api/sd/clips/${id}/fetch?kind=play`, { method: "POST" });
+    const job = await api(`${P()}/api/sd/clips/${id}/fetch?kind=play`, { method: "POST" });
     if (sd.player !== pl) {
       // closed (or replaced) before the answer: nobody watches this fetch any more
       if (jobActive(job) && job.kind === "play" && !sd.wantFile.has(id) && !(sd.player && sd.player.id === id)) cancelSdJob(id);
@@ -666,7 +682,7 @@ function untagButton(clipId, d, after) {
       e.stopPropagation();
       if (!confirm(t`Retirer l'étiquette « ${TapoI18n.label(d.label)} » de cette vidéo ?`)) return;
       try {
-        await api(`/api/sd/clips/${clipId}/untag?key=${encodeURIComponent(d.key)}`, { method: "POST" });
+        await api(`${P()}/api/sd/clips/${clipId}/untag?key=${encodeURIComponent(d.key)}`, { method: "POST" });
         toast(t("Étiquette retirée"), "ok");
         after();
       } catch (err) { toast(TapoI18n.message(err.message), "err"); }
@@ -713,7 +729,7 @@ function renderSdFilters() {
 async function refreshAnalysis() {
   if (!sd.date || !$("#tab-sd").classList.contains("active")) return;
   try {
-    const date = sd.date, data = await api(`/api/sd/recordings?date=${date}`);
+    const date = sd.date, data = await api(`${P()}/api/sd/recordings?date=${date}`);
     if (date !== sd.date) return;
     const fresh = new Map((data.clips || []).map((c) => [c.id, c]));
     let changed = false;
@@ -726,14 +742,14 @@ async function refreshAnalysis() {
       }
     }
     if (changed && !sd.player) renderDay(); else renderSdFilters();
-    if (changed) api("/api/sd/animals/days").then((d) => { sd.aniDays = d.days || {}; renderCalendar(); }).catch(() => {});
+    if (changed) api(P() + "/api/sd/animals/days").then((d) => { sd.aniDays = d.days || {}; renderCalendar(); }).catch(() => {});
   } catch (e) {}
 }
 $("#btn-analyze").addEventListener("click", async () => {
   try {
-    const st = await api("/api/sd/animals/status");
+    const st = await api(P() + "/api/sd/animals/status");
     if (!st.available) { toast(t("Moteur d'analyse non installé : lancer ~/tapo-web/ml/setup.sh"), "err"); return; }
-    const r = await api(`/api/sd/animals/analyze?date=${sd.date}`, { method: "POST" });
+    const r = await api(`${P()}/api/sd/animals/analyze?date=${sd.date}`, { method: "POST" });
     toast(r.queued ? t`${r.queued} clips en file d'analyse (≈ ${Math.ceil(r.queued * 25 / 60)} min, en arrière-plan)` : t("Tout est déjà analysé"), "ok");
     refreshAnalysis();
     if (!sd.aniTimer) sd.aniTimer = setInterval(refreshAnalysis, 6000);
@@ -746,7 +762,7 @@ function pollSdPlayer(pl) {
   if (!c || !jobActive(c.job)) return;
   pl.timer = setInterval(async () => {
     try {
-      const job = await api(`/api/sd/clips/${pl.id}/job`);
+      const job = await api(`${P()}/api/sd/clips/${pl.id}/job`);
       if (sd.player === pl) onSdPlayerJob(pl, job);       // drop answers that outlived their player
     } catch (e) {}
   }, 1000);
@@ -754,7 +770,7 @@ function pollSdPlayer(pl) {
 
 function playSdFile(id) {
   const video = $("#player");
-  video.src = `/api/sd/clips/${id}/play`;
+  video.src = `${P()}/api/sd/clips/${id}/play`;
   video.play().catch(() => {});
   if (sd.player) sd.player.started = true;
 }
@@ -777,7 +793,7 @@ function onSdPlayerJob(pl, job) {
     clearInterval(pl.timer); pl.timer = null;
     if (!pl.started) playSdFile(id);                      // short clip, or HLS gave up: play the MP4
     else if (pl.hls) pl.timer = setInterval(() => {       // keep the HLS copy alive while paused
-      if (sd.player === pl) api(`/api/sd/clips/${id}/job`).catch(() => {});
+      if (sd.player === pl) api(`${P()}/api/sd/clips/${id}/job`).catch(() => {});
     }, 120000);
   }
 }
@@ -785,7 +801,7 @@ function onSdPlayerJob(pl, job) {
 function startSdHls(pl) {
   pl.started = true;
   const video = $("#player");
-  const url = `/sdplay/${pl.id}/index.m3u8`;
+  const url = `${P()}/sdplay/${pl.id}/index.m3u8`;
   if (!(window.Hls && Hls.isSupported())) {               // Safari: native HLS
     video.src = url;
     video.play().catch(() => {});
@@ -821,7 +837,7 @@ function setSdModalState(c, job) {
   const cached = !!(c && c.cached);
   const link = $("#modal-download"), btn = $("#modal-sd-download"), bar = $("#modal-fetch");
   link.hidden = !cached;
-  if (cached && c) link.href = `/api/sd/clips/${c.id}/download`;
+  if (cached && c) link.href = `${P()}/api/sd/clips/${c.id}/download`;
   btn.hidden = cached;
   const waiting = c && sd.wantFile.has(c.id);
   btn.disabled = !!waiting;
@@ -839,7 +855,7 @@ $("#modal-sd-download").addEventListener("click", async () => {
   const pl = sd.player;
   if (!pl) return;
   try {
-    const job = await api(`/api/sd/clips/${pl.id}/fetch?kind=download`, { method: "POST" });
+    const job = await api(`${P()}/api/sd/clips/${pl.id}/fetch?kind=download`, { method: "POST" });
     sd.wantFile.add(pl.id);
     if (sd.player === pl) { pl.dead = false; onSdPlayerJob(pl, job); pollSdPlayer(pl); }   // (re)start this player's poll
     else { applyJob(pl.id, job); startSdPolling(); }
@@ -866,8 +882,10 @@ function closeSdPlayer() {
 const ani = { key: null, species: [], clips: [] };
 
 async function loadAnimals() {
+  const cam = state.cam;
   try {
-    const d = await api("/api/animals/species");
+    const d = await api(P() + "/api/animals/species");
+    if (cam !== state.cam) return;
     ani.species = d.species || [];
     const st = d.status || {};
     $("#ani-status").textContent = !st.available ? t("Moteur d'analyse non installé (ml/setup.sh)")
@@ -890,7 +908,7 @@ async function loadAnimals() {
 
 async function loadAnimalClips() {
   const key = ani.key;
-  const d = await api(`/api/animals/clips?key=${encodeURIComponent(key)}`);
+  const d = await api(`${P()}/api/animals/clips?key=${encodeURIComponent(key)}`);
   if (key !== ani.key) return;
   ani.clips = d.clips || [];
   const sp = ani.species.find((x) => x.key === key);
@@ -914,11 +932,11 @@ function animalRow(c) {
     text: `${d.emoji} ${TapoI18n.label(d.label)}` + (d.group === "animal" && d.key !== "animal" ? ` ${Math.round(d.score * 100)} %` : ""),
     onclick: () => play(Math.max(0, d.first - 2)) }), untagButton(c.id, d, loadAnimals)]);
   tags.push(h("span", { class: "tag " + (c.cached ? "local" : "none"), text: c.cached ? t("copie locale") : t("sur la carte SD") }));
-  const img = h("img", { src: c.frame ? `/api/sd/clips/${c.id}/animal` : `/api/sd/clips/${c.id}/thumb`, loading: "lazy", alt: "",
+  const img = h("img", { src: c.frame ? `${P()}/api/sd/clips/${c.id}/animal` : `${P()}/api/sd/clips/${c.id}/thumb`, loading: "lazy", alt: "",
     onerror: (e) => e.target.remove() });
   const actions = [h("button", { class: "btn", text: t("▶ Lire"), onclick: () => play(Math.max(0, c.first - 2)) })];
   if (c.cached) actions.push(h("a", { class: "btn ghost", text: "⬇", "aria-label": t("Télécharger"), title: t("Télécharger le MP4"),
-    href: `/api/sd/clips/${c.id}/download`, download: true }));
+    href: `${P()}/api/sd/clips/${c.id}/download`, download: true }));
   return h("div", { class: "clip ani", "data-id": c.id },
     h("button", { class: "clip-thumb", "aria-label": t`Lire la vidéo du ${c.date} ${c.time}`, onclick: () => play(Math.max(0, c.first - 2)) },
       h("span", { text: "▶" }), img),
@@ -943,7 +961,7 @@ $("#btn-sd-refresh").addEventListener("click", () => loadSd(true));
 // ---------- poll active recordings so the UI recovers state on reload ----------
 async function syncRecordings() {
   try {
-    const s = await api("/api/record/status");
+    const s = await api(P() + "/api/record/status");
     const manual = (s.active || []).find((r) => r.kind === "manual");
     if (manual && !state.manualRecId) {
       state.manualRecId = manual.id;
@@ -954,35 +972,277 @@ async function syncRecordings() {
   } catch (e) {}
 }
 
-// ---------- settings / first run ----------
+// ---------- cameras ----------
+const CAM_KEY = "tapo-web.camera";
+function storedCam() { try { return localStorage.getItem(CAM_KEY); } catch (e) { return null; } }
+function storeCam(id) { try { localStorage.setItem(CAM_KEY, id); } catch (e) { /* per-tab only */ } }
+
+async function loadCameras() {
+  const d = await api("/api/cameras");
+  state.cams = d.cameras || [];
+  state.setup = d;
+  const ids = state.cams.map((c) => c.id);
+  if (!ids.includes(state.cam)) state.cam = ids.includes(storedCam()) ? storedCam() : (ids[0] || null);
+  renderCamPicker();
+  return d;
+}
+
+function renderCamPicker() {
+  const sel = $("#cam-select");
+  sel.replaceChildren(...state.cams.map((c) => h("option", { value: c.id, selected: c.id === state.cam }, c.name)));
+  sel.hidden = state.cams.length < 2;
+  $('.tab[data-tab="wall"]').hidden = state.cams.length < 2;
+}
+$("#cam-select").addEventListener("change", (e) => selectCamera(e.target.value));
+
+function selectCamera(id, tab) {
+  if (id !== state.cam) {
+    stopLive();
+    closePlayer();
+    clearInterval(sd.pollTimer); sd.pollTimer = null;
+    clearInterval(sd.aniTimer); sd.aniTimer = null;
+    Object.assign(sd, { days: [], date: null, month: null, clips: [], filter: "all", aniDays: {} });
+    sd.wantFile.clear();
+    ani.key = null;
+    state.manualRecId = null;
+    $("#btn-rec-start").disabled = false;
+    $("#btn-rec-stop").disabled = true;
+    $("#rec-badge").hidden = true;
+    state.cam = id;
+    storeCam(id);
+    renderCamPicker();
+    refreshStatus();
+    syncRecordings();
+  }
+  const target = tab || $(".tab.active")?.dataset.tab || "live";
+  history.replaceState(null, "", "#" + target);
+  showTab(target === "wall" ? "live" : target);
+}
+
+// ---------- all cameras at once ----------
+const wall = { players: [] };
+
+function stopWall() {
+  for (const p of wall.players) { try { p.hls && p.hls.destroy(); } catch (e) {} p.video.removeAttribute("src"); }
+  wall.players = [];
+}
+
+async function startWall() {
+  stopWall();
+  try { await loadCameras(); } catch (e) { /* keep the last known list */ }
+  if (!$("#tab-wall").classList.contains("active")) return;
+  const grid = $("#wall");
+  grid.replaceChildren(...state.cams.map((c) => {
+    const video = h("video", { muted: true, playsinline: true, autoplay: true });
+    video.muted = true;
+    const url = `/cams/${encodeURIComponent(c.id)}/live/sd/index.m3u8`;
+    const p = { video, hls: null };
+    if (!c.online) { /* nothing to play */ } else if (window.Hls && Hls.isSupported()) {
+      p.hls = new Hls({ liveSyncDurationCount: 2, maxBufferLength: 6 });
+      p.hls.loadSource(url);
+      p.hls.attachMedia(video);
+      p.hls.on(Hls.Events.ERROR, (_e, data) => { if (data.fatal && data.type === Hls.ErrorTypes.NETWORK_ERROR) setTimeout(() => p.hls && p.hls.startLoad(), 3000); });
+    } else {
+      video.src = url;
+    }
+    wall.players.push(p);
+    return h("button", { class: "wall-tile", "aria-label": t`Ouvrir ${c.name}`, onclick: () => selectCamera(c.id, "live") },
+      video,
+      c.online ? null : h("span", { class: "wall-off", text: t("hors ligne") }),
+      h("span", { class: "wall-name" }, h("span", { class: "dot " + (c.online ? "online" : "offline") }), c.name));
+  }));
+}
+
+// ---------- settings: cameras, TP-Link account, first-run assistant ----------
+const setup = { editing: null, scan: [] };
+
+function closeSetup() {
+  $("#setup").hidden = true;
+}
+$("#setup-close").addEventListener("click", closeSetup);
+
 async function openSetup() {
   try {
-    const st = await api("/api/setup");
-    if (!st.can_edit) { toast(t("Les identifiants ne se modifient que depuis la machine qui héberge l'application."), "err"); return; }
-    const f = $("#setup-form");
-    f.host.value = st.host || ""; f.subnet.value = st.subnet || ""; f.user.value = st.user || "";
-    f.password.value = ""; f.cloud_password.value = "";
+    const d = await loadCameras();
+    if (!d.can_edit) { toast(t("Les identifiants ne se modifient que depuis la machine qui héberge l'application."), "err"); return; }
+    showSetupList();
     $("#setup").hidden = false;
+    if (d.needs_setup && !setup.scan.length) scanNetwork();
   } catch (e) { toast(TapoI18n.message(e.message), "err"); }
 }
 $("#btn-settings").addEventListener("click", openSetup);
-$("#setup-close").addEventListener("click", () => ($("#setup").hidden = true));
-$("#setup-form").addEventListener("submit", async (e) => {
+
+function showSetupList() {
+  const d = state.setup || {};
+  $("#setup-title").textContent = t("Réglages");
+  $("#setup-list").hidden = false;
+  $("#cam-form").hidden = true;
+  $("#setup-welcome").hidden = !d.needs_setup;
+  $("#account-form").subnet.value = d.subnet || "";
+  $("#account-form").cloud_password.value = "";
+  $("#account-state").textContent = d.has_cloud_password ? t("enregistré") : t("pas encore enregistré");
+  $("#cam-list").replaceChildren(...(state.cams.length ? state.cams.map((c) => h("div", { class: "cam-row" },
+    h("span", { class: "dot " + (c.online ? "online" : "offline") }),
+    h("span", { class: "cam-row-name" }, c.name, h("small", { text: [c.model, c.host].filter(Boolean).join(" · ") })),
+    h("button", { class: "btn ghost", type: "button", text: t("Modifier"), onclick: () => editCamera(c) }),
+    h("button", { class: "btn ghost", type: "button", text: "🗑", title: t("Retirer cette caméra"), "aria-label": t("Retirer cette caméra"),
+      onclick: () => removeCamera(c) }))) : [h("div", { class: "hint", text: t("Aucune caméra pour l'instant.") })]));
+  renderScan();
+}
+
+async function removeCamera(c) {
+  if (!confirm(t`Retirer ${c.name} ? Ses enregistrements restent sur le disque.`)) return;
+  try {
+    await api(`/api/cameras/${encodeURIComponent(c.id)}`, { method: "DELETE" });
+    await loadCameras();
+    if (!state.cams.find((x) => x.id === state.cam) && state.cams[0]) selectCamera(state.cams[0].id);
+    showSetupList();
+  } catch (e) { toast(TapoI18n.message(e.message), "err"); }
+}
+
+async function scanNetwork() {
+  const btn = $("#btn-cam-scan");
+  btn.disabled = true;
+  $("#scan-results").replaceChildren(h("div", { class: "hint", text: t("Recherche des caméras sur le réseau… (jusqu'à une minute)") }));
+  try {
+    const subnet = $("#account-form").subnet.value.trim();
+    const d = await api("/api/discovery", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(subnet ? { subnet } : {}) });
+    setup.scan = d.devices || [];
+    renderScan(true);
+  } catch (e) {
+    $("#scan-results").replaceChildren(h("div", { class: "hint err", text: TapoI18n.message(e.message) }));
+  } finally { btn.disabled = false; }
+}
+$("#btn-cam-scan").addEventListener("click", scanNetwork);
+
+function renderScan(fresh) {
+  const box = $("#scan-results");
+  if (!setup.scan.length) {
+    if (fresh) box.replaceChildren(h("div", { class: "hint", text: t("Aucune caméra trouvée. Vérifiez le sous-réseau ci-dessous, ou ajoutez la caméra à la main.") }));
+    else box.replaceChildren();
+    return;
+  }
+  box.replaceChildren(h("div", { class: "hint", text: t("Caméras trouvées sur le réseau :") }),
+    ...setup.scan.map((dev) => h("div", { class: "cam-row" },
+      h("span", { class: "emo", text: "📷" }),
+      h("span", { class: "cam-row-name" }, dev.model || t("Caméra Tapo"),
+        h("small", { text: [dev.name, dev.ip, dev.firmware && "fw " + dev.firmware].filter(Boolean).join(" · ") })),
+      dev.camera ? h("span", { class: "pill", text: t("déjà ajoutée") })
+        : h("button", { class: "btn", type: "button", text: t("Ajouter"), onclick: () => editCamera(null, dev) }))));
+}
+
+$("#btn-cam-add").addEventListener("click", () => editCamera(null, null));
+
+function editCamera(cam, found) {
+  setup.editing = cam ? cam.id : null;
+  const f = $("#cam-form");
+  f.reset();
+  $("#setup-title").textContent = cam ? cam.name : t("Ajouter une caméra");
+  f.name.value = cam ? cam.custom_name || "" : (found && found.model) || "";
+  f.host.value = cam ? cam.host || "" : (found && found.ip) || "";
+  f.mac.value = (found && found.mac) || "";
+  f.model.value = (found && found.model) || "";
+  f.user.value = cam ? cam.user || "" : (state.cams[0] && state.cams[0].user) || "";
+  f.protocol.value = cam ? cam.protocol || "auto" : "auto";
+  f.other_account.checked = !!(cam && cam.own_cloud_password);
+  const shared = state.setup && state.setup.has_cloud_password;
+  f.cloud_password.placeholder = (cam && cam.own_cloud_password) || shared ? t("laisser vide pour conserver") : "";
+  f.password.placeholder = cam && cam.has_password ? t("laisser vide pour conserver") : "";
+  $("#cam-form-intro").textContent = found
+    ? t`${found.model || t("Caméra")} trouvée sur ${found.ip}. Il reste les deux comptes ci-dessous.`
+    : cam ? "" : t("Saisissez l'adresse IP de la caméra si vous la connaissez, sinon laissez vide : elle sera cherchée sur le réseau.");
+  $("#cam-form-test").hidden = !cam;
+  $("#cam-form-diag").hidden = !cam;
+  $("#check-results").replaceChildren();
+  $("#setup-list").hidden = true;
+  f.hidden = false;
+  (f.user.value ? f.password : f.user).focus();
+}
+$("#cam-form-back").addEventListener("click", showSetupList);
+
+$("#cam-form").addEventListener("submit", async (e) => {
   e.preventDefault();
   const f = e.target;
-  const body = Object.fromEntries(["host", "subnet", "user", "password", "cloud_password"].map((k) => [k, f[k].value]));
+  const body = Object.fromEntries(["name", "host", "user", "password", "protocol", "mac", "model"].map((k) => [k, f[k].value.trim()]));
+  const cloud = f.cloud_password.value;
+  const json = (method, payload) => ({ method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
   try {
-    await api("/api/setup", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-    $("#setup").hidden = true;
+    if (cloud && !f.other_account.checked) await api("/api/setup", json("POST", { cloud_password: cloud }));
+    if (f.other_account.checked) { if (cloud) body.cloud_password = cloud; }
+    else if (setup.editing) body.clear_cloud_password = true;
+    const cam = setup.editing
+      ? await api(`/api/cameras/${encodeURIComponent(setup.editing)}`, json("PUT", body))
+      : await api("/api/cameras", json("POST", body));
     toast(t("Identifiants enregistrés"), "ok");
-    await api("/api/discover", { method: "POST" }).catch(() => {});
-    refreshStatus();
+    await loadCameras();
+    const fresh = !setup.editing;
+    setup.editing = cam.id;
+    setup.scan = setup.scan.map((d) => (d.mac && d.mac === body.mac) || d.ip === body.host ? { ...d, camera: cam.id } : d);
+    $("#cam-form-test").hidden = false;
+    $("#cam-form-diag").hidden = false;
+    if (state.cam !== cam.id && (fresh || !state.cam)) selectCamera(cam.id);
+    else refreshStatus();
+    if (fresh) runCheck();
   } catch (err) { toast(TapoI18n.message(err.message), "err"); }
 });
-api("/api/setup").then((st) => { if (st.needs_setup) openSetup(); }).catch(() => {});
+
+const CHECK_LABELS = { network: "Réseau", camera_account: "Compte de la caméra (live)", tplink_account: "Compte TP-Link (carte SD)" };
+const CHECK_HELP = {
+  camera_account: "Vérifiez l'utilisateur et le mot de passe du compte de la caméra (appli Tapo → la caméra → Paramètres avancés → Compte de la caméra).",
+  tplink_account: "Vérifiez le mot de passe du compte TP-Link et activez « Compatibilité tierce » dans l'appli Tapo (Moi → Tapo Lab). Évitez d'essayer plusieurs mots de passe de suite : la caméra bloque les connexions pendant un moment.",
+  network: "La caméra n'a pas été trouvée. Vérifiez qu'elle est allumée et sur le même réseau, ou indiquez son adresse IP.",
+};
+
+async function runCheck() {
+  const box = $("#check-results");
+  const btn = $("#cam-form-test");
+  btn.disabled = true;
+  box.replaceChildren(h("div", { class: "hint", text: t("Test de la connexion…") }));
+  try {
+    const r = await api(`/cams/${encodeURIComponent(setup.editing)}/api/check`, { method: "POST" });
+    box.replaceChildren(...r.checks.map((c) => h("div", { class: "check " + (c.ok ? "ok" : "bad") },
+      h("span", { class: "check-mark", text: c.ok ? "✓" : "✕" }),
+      h("span", {}, h("b", { text: t(CHECK_LABELS[c.key] || c.key) }), " ", TapoI18n.message(c.detail || ""),
+        !c.ok && CHECK_HELP[c.key] ? h("small", { text: t(CHECK_HELP[c.key]) }) : null))));
+    if (r.checks.every((c) => c.ok)) box.append(h("div", { class: "hint ok", text: t("Tout fonctionne. Vous pouvez fermer cette fenêtre.") }));
+    loadCameras().then(() => { if (!$("#setup-list").hidden) showSetupList(); }).catch(() => {});
+    refreshStatus();
+  } catch (e) {
+    box.replaceChildren(h("div", { class: "hint err", text: TapoI18n.message(e.message) }));
+  } finally { btn.disabled = false; }
+}
+$("#cam-form-test").addEventListener("click", runCheck);
+
+async function copyDiagnostics() {
+  try {
+    const d = await api(`/cams/${encodeURIComponent(setup.editing)}/api/diagnostics`);
+    const text = "```json\n" + JSON.stringify(d, null, 2) + "\n```";
+    try { await navigator.clipboard.writeText(text); toast(t("Rapport copié : collez-le dans un ticket GitHub."), "ok"); }
+    catch (e) { prompt(t("Rapport de diagnostic (aucune adresse ni mot de passe) :"), text); }
+  } catch (e) { toast(TapoI18n.message(e.message), "err"); }
+}
+$("#cam-form-diag").addEventListener("click", copyDiagnostics);
+
+$("#account-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const f = e.target;
+  const body = { subnet: f.subnet.value.trim() };
+  if (f.cloud_password.value) body.cloud_password = f.cloud_password.value;
+  try {
+    await api("/api/setup", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    toast(t("Identifiants enregistrés"), "ok");
+    await loadCameras();
+    showSetupList();
+  } catch (err) { toast(TapoI18n.message(err.message), "err"); }
+});
 
 // ---------- init ----------
-if (location.hash.length > 1) showTab(location.hash.slice(1).split("/")[0]);   // deep link: /#sd, /#library
-refreshStatus();
-syncRecordings();
+loadCameras().then((d) => {
+  if (d.needs_setup) openSetup();
+  const tab = location.hash.slice(1).split("/")[0];       // deep link: /#sd, /#library, /#wall
+  if (tab) showTab(tab);
+  refreshStatus();
+  syncRecordings();
+}).catch(() => refreshStatus());
 setInterval(refreshStatus, 15000);
