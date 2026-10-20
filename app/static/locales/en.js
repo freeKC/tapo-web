@@ -205,7 +205,31 @@ TapoI18n.register("en", {
     "Rapport copié : collez-le dans un ticket GitHub.": "Report copied: paste it in a GitHub issue.",
     "Rapport de diagnostic (aucune adresse ni mot de passe) :": "Diagnostic report (no address, no password):",
     "+ Ajouter à la main": "+ Add by hand",
-    "hors ligne": "offline"
+    "hors ligne": "offline",
+    "Réglages de la caméra": "Camera settings",
+    "Mode privé (image masquée)": "Privacy mode (picture hidden)",
+    "Voyant lumineux": "Status light",
+    "Projecteur": "Spotlight",
+    "Suivi automatique": "Auto tracking",
+    "Détection de mouvement": "Motion detection",
+    "Détection de personne": "Person detection",
+    "Faible": "Low",
+    "Normale": "Normal",
+    "Élevée": "High",
+    "Vision nocturne": "Night vision",
+    "Intelligente": "Smart",
+    "Infrarouge (noir et blanc)": "Infrared (black and white)",
+    "Couleur (projecteur)": "Color (spotlight)",
+    "Jour / nuit": "Day / night",
+    "Nuit forcée": "Always night",
+    "Jour forcé": "Always day",
+    "Aller à cette position": "Go to this position",
+    "Oublier cette position": "Forget this position",
+    "Oublier {{0}}": "Forget {{0}}",
+    "+ Mémoriser la position": "+ Save this position",
+    "Nom de cette position :": "Name of this position:",
+    "Position mémorisée": "Position saved",
+    "Oublier la position {{0}} ?": "Forget the {{0}} position?"
   },
   "messages": {
     "chat": "cat",
@@ -309,6 +333,13 @@ TapoI18n.register("en", {
     "connecté, pas de carte SD": "connected, no SD card",
     "mot de passe du compte TP-Link refusé": "TP-Link account password refused",
     "mot de passe du compte TP-Link non renseigné": "TP-Link account password not filled in",
-    "Nouveau test possible dans quelques secondes (la caméra bloque les connexions répétées) : ": "You can test again in a few seconds (the camera blocks repeated logins): "
+    "Nouveau test possible dans quelques secondes (la caméra bloque les connexions répétées) : ": "You can test again in a few seconds (the camera blocks repeated logins): ",
+    "Réglage non pris en charge par cette caméra.": "This camera does not support that setting.",
+    "Sensibilité invalide (low, normal ou high).": "Invalid sensitivity (low, normal or high).",
+    "Mode de vision nocturne inconnu.": "Unknown night vision mode.",
+    "Mode jour / nuit inconnu.": "Unknown day / night mode.",
+    "Réglage inconnu.": "Unknown setting.",
+    "Position inconnue.": "Unknown position.",
+    "Nom de position invalide.": "Invalid position name."
   }
 });

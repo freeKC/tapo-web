@@ -67,6 +67,7 @@ function showTab(name) {
   tab.classList.add("active");
   $("#tab-" + name).classList.add("active");
   if (name === "wall") startWall(); else stopWall();
+  if (name === "live") loadCamSettings();
   if (name === "library") loadLibrary();
   if (name === "sd") loadSd();
   if (name === "animals") loadAnimals();
@@ -972,6 +973,112 @@ async function syncRecordings() {
   } catch (e) {}
 }
 
+// ---------- camera settings (privacy, LED, night vision, detection, presets) ----------
+const SETTING_SWITCHES = [
+  ["privacy", "Mode privé (image masquée)"],
+  ["led", "Voyant lumineux"],
+  ["white_lamp", "Projecteur"],
+  ["auto_track", "Suivi automatique"],
+];
+const SETTING_DETECTIONS = [["motion", "Détection de mouvement"], ["person", "Détection de personne"]];
+const SENSITIVITIES = [["low", "Faible"], ["normal", "Normale"], ["high", "Élevée"]];
+const NIGHT_MODES = {
+  night_vision: ["Vision nocturne", [["md_night_vision", "Intelligente"], ["inf_night_vision", "Infrarouge (noir et blanc)"],
+                                     ["wtl_night_vision", "Couleur (projecteur)"]]],
+  day_night: ["Jour / nuit", [["auto", "Automatique"], ["on", "Nuit forcée"], ["off", "Jour forcé"]]],
+};
+const JSON_HEADERS = { "Content-Type": "application/json" };
+
+async function loadCamSettings(force = false) {
+  const cam = state.cam;
+  try {
+    const d = await api(P() + "/api/settings" + (force ? "?force=true" : ""));
+    if (cam === state.cam) renderCamSettings(d.values || {});
+  } catch (e) {
+    if (cam !== state.cam) return;
+    $("#cam-settings").hidden = true;
+    renderPresets(null);
+  }
+}
+
+function switchInput(checked, onchange) {
+  const input = h("input", { type: "checkbox" });
+  input.checked = !!checked;
+  input.addEventListener("change", () => onchange(input.checked, input));
+  return h("label", { class: "switch" }, input, h("span", { class: "slider" }));
+}
+
+function choice(options, value, onchange) {
+  const sel = h("select", {}, ...options.map(([v, label]) => h("option", { value: v, selected: v === value }, t(label))));
+  sel.addEventListener("change", () => onchange(sel.value, sel));
+  return sel;
+}
+
+async function setCamSetting(body, control) {
+  if (control) control.disabled = true;
+  try {
+    const d = await api(P() + "/api/settings", { method: "PUT", headers: JSON_HEADERS, body: JSON.stringify(body) });
+    renderCamSettings(d.values || {});
+  } catch (e) {
+    toast(TapoI18n.message(e.message), "err");
+    loadCamSettings(true);
+  }
+}
+
+function renderCamSettings(v) {
+  const row = (label, ...controls) => h("div", { class: "cam-setting" }, h("span", { text: t(label) }), h("span", { class: "row" }, ...controls));
+  const rows = [];
+  for (const [key, label] of SETTING_SWITCHES) {
+    if (key in v) rows.push(row(label, switchInput(v[key], (on, el) => setCamSetting({ [key]: on }, el))));
+  }
+  for (const [key, label] of SETTING_DETECTIONS) {
+    const d = v[key];
+    if (!d) continue;
+    rows.push(row(label,
+      d.sensitivity ? choice(SENSITIVITIES, d.sensitivity, (s, el) => setCamSetting({ [key]: { sensitivity: s } }, el)) : null,
+      switchInput(d.enabled, (on, el) => setCamSetting({ [key]: { enabled: on } }, el))));
+  }
+  for (const [key, [label, options]] of Object.entries(NIGHT_MODES)) {
+    if (v[key]) rows.push(row(label, choice(options, v[key], (m, el) => setCamSetting({ [key]: m }, el))));
+  }
+  $("#cam-settings-body").replaceChildren(...rows);
+  $("#cam-settings").hidden = !rows.length;
+  renderPresets("presets" in v ? v.presets : null);
+}
+
+function renderPresets(list) {
+  const box = $("#ptz-presets");
+  if (!list) { box.replaceChildren(); return; }
+  box.replaceChildren(...list.map((p) => h("span", { class: "preset" },
+    h("button", { type: "button", text: p.name, title: t("Aller à cette position"), onclick: () => gotoPreset(p) }),
+    h("button", { type: "button", class: "x", text: "✕", title: t("Oublier cette position"), "aria-label": t`Oublier ${p.name}`,
+      onclick: () => deletePreset(p) }))),
+  h("button", { type: "button", class: "btn ghost", text: t("+ Mémoriser la position"), onclick: savePreset }));
+}
+
+async function gotoPreset(p) {
+  try { await api(`${P()}/api/presets/${encodeURIComponent(p.id)}/goto`, { method: "POST" }); }
+  catch (e) { toast(TapoI18n.message(e.message), "err"); }
+}
+
+async function savePreset() {
+  const name = prompt(t("Nom de cette position :"));
+  if (!name) return;
+  try {
+    const d = await api(P() + "/api/presets", { method: "POST", headers: JSON_HEADERS, body: JSON.stringify({ name }) });
+    renderCamSettings(d.values || {});
+    toast(t("Position mémorisée"), "ok");
+  } catch (e) { toast(TapoI18n.message(e.message), "err"); }
+}
+
+async function deletePreset(p) {
+  if (!confirm(t`Oublier la position ${p.name} ?`)) return;
+  try {
+    const d = await api(`${P()}/api/presets/${encodeURIComponent(p.id)}`, { method: "DELETE" });
+    renderCamSettings(d.values || {});
+  } catch (e) { toast(TapoI18n.message(e.message), "err"); }
+}
+
 // ---------- cameras ----------
 const CAM_KEY = "tapo-web.camera";
 function storedCam() { try { return localStorage.getItem(CAM_KEY); } catch (e) { return null; } }
@@ -1242,6 +1349,7 @@ loadCameras().then((d) => {
   if (d.needs_setup) openSetup();
   const tab = location.hash.slice(1).split("/")[0];       // deep link: /#sd, /#library, /#wall
   if (tab) showTab(tab);
+  else loadCamSettings();
   refreshStatus();
   syncRecordings();
 }).catch(() => refreshStatus());

@@ -18,7 +18,7 @@ from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, PlainTextResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-from . import animals, camera, checks, config, discovery, library, sd
+from . import animals, camera, checks, config, discovery, features, library, sd
 from .cameras import Camera, CameraError, registry
 from .ptz import ptz_available, ptz_move
 from .recorder import recorder_for
@@ -210,7 +210,9 @@ def api_status(cam: Camera = Depends(current_camera)):
         "model": st.model,
         "firmware": st.firmware,
         "streams": list(config.STREAMS.keys()),
-        "ptz": ptz_available(cam, st.host) if (st.online and st.host) else False,
+        # ONVIF answers on fixed cameras too: the component list, once read, says if it pans
+        "ptz": (st.online and bool(st.host) and "ptz" in (features.known_components(cam) or {"ptz": 1})
+                and ptz_available(cam, st.host)),
         "continuous": recorder_for(cam).continuous_running(),
         "recordings_dir": str(cam.recordings_dir),
     }
@@ -405,6 +407,63 @@ def api_ptz(direction: str = Query(...), cam: Camera = Depends(current_camera)):
     if not ptz_move(cam, host, direction):
         raise HTTPException(400, "PTZ indisponible ou direction invalide")
     return {"moved": direction}
+
+
+# --------------------------------------------------------------------------- #
+#  Camera settings (control API, see features.py)
+# --------------------------------------------------------------------------- #
+def _feature(fn, *args):
+    try:
+        return fn(*args)
+    except features.SettingsError as e:
+        raise HTTPException(400, str(e))
+    except sd.SdError as e:
+        raise HTTPException(502, str(e))
+
+
+@cam_routes.get("/api/settings")
+def camera_settings(force: bool = Query(False), cam: Camera = Depends(current_camera)):
+    return _feature(features.read, sd.card_for(cam), force)
+
+
+@cam_routes.put("/api/settings")
+async def camera_settings_set(request: Request, cam: Camera = Depends(current_camera)):
+    try:
+        body = await request.json()
+    except ValueError:
+        body = None
+    if not isinstance(body, dict) or not body:
+        raise HTTPException(400, "requête invalide")
+    card = sd.card_for(cam)
+    for key, value in body.items():
+        _feature(features.write, card, key, value)
+    return _feature(features.read, card, True)
+
+
+@cam_routes.post("/api/presets")
+async def preset_save(request: Request, cam: Camera = Depends(current_camera)):
+    try:
+        body = await request.json()
+    except ValueError:
+        body = None
+    if not isinstance(body, dict) or not isinstance(body.get("name"), str):
+        raise HTTPException(400, "requête invalide")
+    card = sd.card_for(cam)
+    _feature(features.save_preset, card, body["name"])
+    return _feature(features.read, card, True)
+
+
+@cam_routes.post("/api/presets/{preset_id}/goto")
+def preset_goto(preset_id: str, cam: Camera = Depends(current_camera)):
+    _feature(features.goto_preset, sd.card_for(cam), preset_id)
+    return {"moved": preset_id}
+
+
+@cam_routes.delete("/api/presets/{preset_id}")
+def preset_delete(preset_id: str, cam: Camera = Depends(current_camera)):
+    card = sd.card_for(cam)
+    _feature(features.delete_preset, card, preset_id)
+    return _feature(features.read, card, True)
 
 
 # --------------------------------------------------------------------------- #
