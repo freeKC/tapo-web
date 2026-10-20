@@ -1,0 +1,61 @@
+name: Bug report
+description: Something does not work as it should.
+labels: ["bug"]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open the SD card tab
+        2. Pick a day
+        3. ...
+
+  - type: input
+    id: camera
+    attributes:
+      label: Camera model and firmware
+      placeholder: C510W, 1.3.4 Build 260523
+    validations:
+      required: true
+
+  - type: dropdown
+    id: runs-on
+    attributes:
+      label: How do you run the app?
+      options:
+        - Linux or WSL (run.sh or start.sh)
+        - Windows (start.bat)
+        - Docker
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: Operating system and app version
+      placeholder: Ubuntu 24.04, version 0.2.0 (or the git commit)
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: |
+        The terminal output, logs/server.log (and logs/server-error.log on Windows) or `docker compose logs`.
+        Remove passwords, tokens, IP and MAC addresses before posting.
+      render: text

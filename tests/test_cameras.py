@@ -112,6 +112,14 @@ def test_routes_per_camera_and_for_the_first_one(client):
     assert c.delete("/api/cameras/cam2").status_code == 404
 
 
+def test_admin_hosts_can_be_added(monkeypatch):
+    from types import SimpleNamespace
+    from app import main
+    monkeypatch.setattr(main, "_ADMINS", {*main._ADMINS, "172.17.0.1"})
+    assert main._is_local(SimpleNamespace(client=SimpleNamespace(host="172.17.0.1")))
+    assert not main._is_local(SimpleNamespace(client=SimpleNamespace(host="192.0.2.99")))
+
+
 def test_lan_visitors_cannot_change_anything_once_configured(client):
     c, reg, monkeypatch = client
     from app import main

@@ -1,0 +1,69 @@
+name: Camera report
+description: Tell me how the app works with your camera model, good or bad.
+title: "[Camera] "
+labels: ["camera-report"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks! Each report goes into the compatibility list, [docs/CAMERAS.md](https://github.com/freeKC/tapo-web/blob/main/docs/CAMERAS.md).
+        The Tapo app shows the model, hardware and firmware versions in the camera's settings.
+
+  - type: input
+    id: model
+    attributes:
+      label: Camera model
+      placeholder: C510W
+    validations:
+      required: true
+
+  - type: input
+    id: hardware
+    attributes:
+      label: Hardware version
+      placeholder: "1.0"
+
+  - type: input
+    id: firmware
+    attributes:
+      label: Firmware version
+      description: The full string, with the build number.
+      placeholder: 1.3.4 Build 260523
+    validations:
+      required: true
+
+  - type: input
+    id: protocol
+    attributes:
+      label: Connection protocol
+      description: The diagnostic report says it as protocol_working (4 is V4, 3 is type 3).
+      placeholder: V4
+
+  - type: checkboxes
+    id: works
+    attributes:
+      label: What works
+      description: Tick what works. Leave the rest unticked and say below what failed and what you did not try.
+      options:
+        - label: Live view
+        - label: Snapshot
+        - label: PTZ (pan and tilt)
+        - label: SD card status
+        - label: SD recordings list
+        - label: SD playback and download
+        - label: Animal detection
+        - label: Camera settings
+
+  - type: textarea
+    id: notes
+    attributes:
+      label: Notes
+      description: What failed, the error shown, or anything else worth knowing about this camera.
+
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostic report
+      description: |
+        In the app: the gear icon (top right), "Edit" next to the camera, then "Copy the diagnostics". It contains no password, IP or MAC address, but please read it once before posting anyway.
+      render: json

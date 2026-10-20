@@ -1,0 +1,25 @@
+# docker compose up -d --build, then open http://localhost:8088 (details in docs/DOCKER.md)
+services:
+  tapo-web:
+    build: .
+    container_name: tapo-web
+    # The app finds the camera on the LAN (UDP discovery on port 20002, then a scan of
+    # the subnet) and talks to it directly, so it shares the host's network.
+    network_mode: host
+    # Docker Desktop on Windows or macOS: host networking does not reach the LAN the
+    # same way there. Remove network_mode above, publish the port instead, and set
+    # TAPO_SUBNET (or TAPO_HOST) below since UDP discovery will not get through:
+    # ports: ["8088:8088"]
+    volumes:
+      - ./config:/config   # .env and cameras.json
+      - ./data:/data       # recordings, SD card copies, detection results
+    restart: unless-stopped
+    # Optional. The first camera can also be set from the web UI, or with the same
+    # lines in config/.env, which keeps the passwords out of this file.
+    # environment:
+    #   TZ: Europe/Paris                  # local time for file names
+    #   TAPO_SUBNET: "192.168.1"
+    #   TAPO_HOST: "192.168.1.50"
+    #   TAPO_USER: camera_account_user
+    #   TAPO_PASSWORD: camera_account_password
+    #   TAPO_CLOUD_PASSWORD: tp_link_account_password
