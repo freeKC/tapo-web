@@ -153,3 +153,16 @@ def test_mp4_is_playable_rejects_garbage_and_accepts_a_real_file(tmp_path):
     subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "color=c=black:s=64x64:r=5:d=1",
                     "-c:v", "libx264", "-pix_fmt", "yuv420p", str(good)], check=True)
     assert sd.mp4_is_playable(good) is True
+
+
+def test_local_copies_are_counted_once_then_followed(card):
+    for i in range(3):
+        (card.dir / f"sd_17890000{i}0_17890000{i}9.mp4").write_bytes(b"x" * 100)
+    first = card.cache_usage()
+    assert first == {"count": None, "bytes": None}            # counting in the background
+    _wait(lambda: card.cache_usage()["count"] == 3)
+    assert card.cache_usage()["bytes"] == 300
+    (card.dir / "sd_1789000300_1789000309.mp4").write_bytes(b"y" * 50)
+    card._usage_change(1, 50)                                # what a finished fetch does
+    assert card.delete_local("1789000000-1789000009")
+    assert card.cache_usage() == {"count": 3, "bytes": 250}

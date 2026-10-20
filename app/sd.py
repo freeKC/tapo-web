@@ -103,6 +103,11 @@ class SdCard:
         self._cache: dict[str, tuple[float, object]] = {}
         self._cache_lock = threading.Lock()
         self._tz: ZoneInfo | None = None
+        # local copies counter: counted once in the background (thousands of files on a
+        # network or WSL drive take a minute), then kept up to date as files come and go
+        self._usage: dict | None = None
+        self._usage_lock = threading.Lock()
+        self._usage_counting = False
         self.fetcher = Fetcher(self)
         self.thumbs = _Thumbs(self)
 
@@ -280,15 +285,45 @@ class SdCard:
         p = self.local_file(clip_id)
         if not p:
             return False
+        try:
+            size = p.stat().st_size
+        except OSError:
+            size = 0
         p.unlink(missing_ok=True)
+        self._usage_change(-1, -size)
         job = self.fetcher.get(clip_id)
         if job is None or not job.active:
             shutil.rmtree(self.hls_dir / clip_id, ignore_errors=True)
         return True
 
+    def _count_usage(self) -> None:
+        count = size = 0
+        try:
+            with os.scandir(self.dir) as it:
+                for e in it:
+                    if e.name.startswith("sd_") and e.name.endswith(".mp4") and e.is_file():
+                        count += 1
+                        size += e.stat().st_size
+        except OSError:
+            pass
+        with self._usage_lock:
+            self._usage, self._usage_counting = {"count": count, "bytes": size}, False
+
     def cache_usage(self) -> dict:
-        files = [f for f in self.dir.glob("sd_*.mp4") if f.is_file()]
-        return {"count": len(files), "bytes": sum(f.stat().st_size for f in files)}
+        """Local copies: count and bytes, or None for both while the first count runs."""
+        with self._usage_lock:
+            if self._usage is not None:
+                return dict(self._usage)
+            if not self._usage_counting:
+                self._usage_counting = True
+                threading.Thread(target=self._count_usage, daemon=True).start()
+        return {"count": None, "bytes": None}
+
+    def _usage_change(self, count: int, size: int) -> None:
+        with self._usage_lock:
+            if self._usage is not None:
+                self._usage["count"] = max(0, self._usage["count"] + count)
+                self._usage["bytes"] = max(0, self._usage["bytes"] + size)
 
     # -- lifecycle ------------------------------------------------------------
     def cleanup(self) -> None:
@@ -767,6 +802,7 @@ class Fetcher:
             job.state = "finalizing"
             mux.finish()                      # EOF -> ffmpeg writes ENDLIST + moov
             os.replace(part, card.mp4_path(job.start, job.end))
+            card._usage_change(1, card.mp4_path(job.start, job.end).stat().st_size)
             job.progress = job.total
             job.state = "done"
             ok = True

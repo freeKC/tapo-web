@@ -387,7 +387,7 @@ function renderSdCard(st) {
     c.free != null && h("span", {}, t("Libre "), h("b", { text: fmtSize(c.free) })),
     c.loop && h("span", { text: t("Enregistrement en boucle") }),
     c.oldest && h("span", {}, t("Depuis le "), h("b", { text: new Date(c.oldest * 1000).toLocaleDateString(TapoI18n.locale) })),
-    h("span", {}, t("Copies locales "), h("b", { text: `${local.count || 0}` }),
+    h("span", {}, t("Copies locales "), h("b", { text: local.count == null ? "…" : `${local.count}` }),
       local.bytes ? ` (${fmtSize(local.bytes)})` : ""));
   card.replaceChildren(line);
   if (used != null) card.append(h("div", { class: "meter", title: t`${used} % utilisé` }, h("div", { style: `width:${used}%` })));
