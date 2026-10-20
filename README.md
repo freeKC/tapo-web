@@ -105,6 +105,24 @@ and only one connection at a time is opened to the camera since it does not like
 Useful settings in `.env`: `TAPO_DATA_DIR` (put the videos on another drive),
 `TAPO_ANALYZE_KEEP` (`all`, `animals` or `none`), `TAPO_ANALYZE_AUTO=0` to analyse only on demand.
 
+### Cameras using local protocol type 3
+
+The default control protocol is type 4 (SPAKE2+). For cameras using type 3,
+set `TAPO_CONTROL_PROTOCOL=3` in `.env` and restart the server. This uses the
+existing pytapo dependency for control requests and keeps the same SD-card
+query and media download paths. There is no automatic protocol fallback.
+
+Use the **TP-Link account password** for `TAPO_CLOUD_PASSWORD`, and enable
+**Third-Party Compatibility** in the Tapo app (Me > Tapo Lab, depending on app
+version). The camera account remains separate and is used for RTSP/ONVIF.
+Tapo Care is not required for local microSD recordings.
+
+Type 3 was verified on a C520WS with firmware 1.3.5 Build 260522 Rel.14207n:
+SD status, recording dates, clip listings and media download. Library connection
+failures pause further attempts for 60 seconds; a reported login suspension
+uses the camera's stated wait time. Cooldowns last for the current client
+instance, so avoid restarting or changing settings to retry a suspended camera.
+
 ## Speed
 
 Clips come off the SD card at about 10x realtime (a 66 s clip in 7 s on my Wi-Fi) and playback
