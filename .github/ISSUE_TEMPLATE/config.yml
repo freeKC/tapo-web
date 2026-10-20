@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Questions about the camera protocol
+    url: https://github.com/freeKC/tapo-v4-protocol
+    about: How the V4 login, the control API and the media port work. The protocol notes live in their own repo.

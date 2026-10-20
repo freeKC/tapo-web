@@ -1,0 +1,17 @@
+.git
+.venv
+venv
+.mlvenv
+ml/deepfaune
+**/__pycache__
+**/*.pyc
+.pytest_cache
+recordings
+hls
+logs
+_spikes
+.env
+cameras.json
+# the compose volumes: settings and videos never go into the build context
+config
+data

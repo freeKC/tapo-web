@@ -75,8 +75,14 @@ def _require_host(cam: Camera) -> str:
 # --------------------------------------------------------------------------- #
 #  Cameras and account settings: typed in the browser, stored in cameras.json (600)
 # --------------------------------------------------------------------------- #
+# Addresses allowed to change the settings besides this machine: TAPO_ADMIN_HOSTS=192.168.1.20,172.17.0.1
+# (a phone, or the Docker gateway when the port is published).
+_ADMINS = {"127.0.0.1", "::1", "localhost",
+           *(h.strip() for h in config._get("TAPO_ADMIN_HOSTS").split(",") if h.strip())}
+
+
 def _is_local(request: Request) -> bool:
-    return bool(request.client) and request.client.host in ("127.0.0.1", "::1", "localhost")
+    return bool(request.client) and request.client.host in _ADMINS
 
 
 def _can_edit(request: Request) -> bool:
