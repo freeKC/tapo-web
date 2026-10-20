@@ -9,3 +9,8 @@ recordings/
 _spikes/
 .pytest_cache/
 logs/
+cameras.json
+cameras.tmp
+# Docker volumes (docker-compose.yml)
+config/
+data/
