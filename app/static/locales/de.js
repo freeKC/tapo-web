@@ -205,7 +205,31 @@ TapoI18n.register("de", {
     "Rapport copié : collez-le dans un ticket GitHub.": "Bericht kopiert: füge ihn in ein GitHub-Issue ein.",
     "Rapport de diagnostic (aucune adresse ni mot de passe) :": "Diagnosebericht (keine Adresse, kein Passwort):",
     "+ Ajouter à la main": "+ Von Hand hinzufügen",
-    "hors ligne": "offline"
+    "hors ligne": "offline",
+    "Réglages de la caméra": "Kameraeinstellungen",
+    "Mode privé (image masquée)": "Privatmodus (Bild verdeckt)",
+    "Voyant lumineux": "Statusleuchte",
+    "Projecteur": "Strahler",
+    "Suivi automatique": "Automatische Verfolgung",
+    "Détection de mouvement": "Bewegungserkennung",
+    "Détection de personne": "Personenerkennung",
+    "Faible": "Niedrig",
+    "Normale": "Normal",
+    "Élevée": "Hoch",
+    "Vision nocturne": "Nachtsicht",
+    "Intelligente": "Intelligent",
+    "Infrarouge (noir et blanc)": "Infrarot (schwarz-weiß)",
+    "Couleur (projecteur)": "Farbe (Strahler)",
+    "Jour / nuit": "Tag / Nacht",
+    "Nuit forcée": "Immer Nacht",
+    "Jour forcé": "Immer Tag",
+    "Aller à cette position": "Zu dieser Position fahren",
+    "Oublier cette position": "Diese Position vergessen",
+    "Oublier {{0}}": "{{0}} vergessen",
+    "+ Mémoriser la position": "+ Position speichern",
+    "Nom de cette position :": "Name dieser Position:",
+    "Position mémorisée": "Position gespeichert",
+    "Oublier la position {{0}} ?": "Position {{0}} vergessen?"
   },
   "messages": {
     "chat": "Katze",
@@ -309,6 +333,13 @@ TapoI18n.register("de", {
     "connecté, pas de carte SD": "verbunden, keine SD-Karte",
     "mot de passe du compte TP-Link refusé": "Passwort des TP-Link-Kontos abgelehnt",
     "mot de passe du compte TP-Link non renseigné": "Passwort des TP-Link-Kontos nicht eingetragen",
-    "Nouveau test possible dans quelques secondes (la caméra bloque les connexions répétées) : ": "Neuer Test in ein paar Sekunden möglich (die Kamera sperrt wiederholte Anmeldungen): "
+    "Nouveau test possible dans quelques secondes (la caméra bloque les connexions répétées) : ": "Neuer Test in ein paar Sekunden möglich (die Kamera sperrt wiederholte Anmeldungen): ",
+    "Réglage non pris en charge par cette caméra.": "Diese Kamera unterstützt die Einstellung nicht.",
+    "Sensibilité invalide (low, normal ou high).": "Ungültige Empfindlichkeit (low, normal oder high).",
+    "Mode de vision nocturne inconnu.": "Unbekannter Nachtsichtmodus.",
+    "Mode jour / nuit inconnu.": "Unbekannter Tag-/Nachtmodus.",
+    "Réglage inconnu.": "Unbekannte Einstellung.",
+    "Position inconnue.": "Unbekannte Position.",
+    "Nom de position invalide.": "Ungültiger Positionsname."
   }
 });

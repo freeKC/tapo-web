@@ -205,7 +205,31 @@ TapoI18n.register("pl", {
     "Rapport copié : collez-le dans un ticket GitHub.": "Raport skopiowany: wklej go w zgłoszeniu na GitHubie.",
     "Rapport de diagnostic (aucune adresse ni mot de passe) :": "Raport diagnostyczny (bez adresów i haseł):",
     "+ Ajouter à la main": "+ Dodaj ręcznie",
-    "hors ligne": "offline"
+    "hors ligne": "offline",
+    "Réglages de la caméra": "Ustawienia kamery",
+    "Mode privé (image masquée)": "Tryb prywatny (obraz ukryty)",
+    "Voyant lumineux": "Dioda stanu",
+    "Projecteur": "Reflektor",
+    "Suivi automatique": "Automatyczne śledzenie",
+    "Détection de mouvement": "Wykrywanie ruchu",
+    "Détection de personne": "Wykrywanie osób",
+    "Faible": "Niska",
+    "Normale": "Normalna",
+    "Élevée": "Wysoka",
+    "Vision nocturne": "Widzenie w nocy",
+    "Intelligente": "Inteligentne",
+    "Infrarouge (noir et blanc)": "Podczerwień (czarno-białe)",
+    "Couleur (projecteur)": "Kolor (reflektor)",
+    "Jour / nuit": "Dzień / noc",
+    "Nuit forcée": "Zawsze noc",
+    "Jour forcé": "Zawsze dzień",
+    "Aller à cette position": "Przejdź do tej pozycji",
+    "Oublier cette position": "Zapomnij tę pozycję",
+    "Oublier {{0}}": "Zapomnij {{0}}",
+    "+ Mémoriser la position": "+ Zapamiętaj pozycję",
+    "Nom de cette position :": "Nazwa tej pozycji:",
+    "Position mémorisée": "Pozycja zapamiętana",
+    "Oublier la position {{0}} ?": "Zapomnieć pozycję {{0}}?"
   },
   "messages": {
     "chat": "kot",
@@ -309,6 +333,13 @@ TapoI18n.register("pl", {
     "connecté, pas de carte SD": "połączono, brak karty SD",
     "mot de passe du compte TP-Link refusé": "hasło konta TP-Link odrzucone",
     "mot de passe du compte TP-Link non renseigné": "nie podano hasła konta TP-Link",
-    "Nouveau test possible dans quelques secondes (la caméra bloque les connexions répétées) : ": "Kolejny test będzie możliwy za kilka sekund (kamera blokuje powtarzane logowania): "
+    "Nouveau test possible dans quelques secondes (la caméra bloque les connexions répétées) : ": "Kolejny test będzie możliwy za kilka sekund (kamera blokuje powtarzane logowania): ",
+    "Réglage non pris en charge par cette caméra.": "Ta kamera nie obsługuje tego ustawienia.",
+    "Sensibilité invalide (low, normal ou high).": "Nieprawidłowa czułość (low, normal lub high).",
+    "Mode de vision nocturne inconnu.": "Nieznany tryb widzenia w nocy.",
+    "Mode jour / nuit inconnu.": "Nieznany tryb dzień / noc.",
+    "Réglage inconnu.": "Nieznane ustawienie.",
+    "Position inconnue.": "Nieznana pozycja.",
+    "Nom de position invalide.": "Nieprawidłowa nazwa pozycji."
   }
 });
