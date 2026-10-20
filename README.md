@@ -35,8 +35,14 @@ continuous DVR in 10 minute chunks, and pan/tilt on motorised models.
 
 ![live tab](docs/img/live.png)
 
-The UI is in French because that's what we speak at home. Should be easy enough to follow, and
-translating it is a small job if someone wants it.
+The UI follows the browser's ordered language preferences. French and Polish are
+supported, with French as the fallback for other languages. Dates and numbers
+use the selected browser locale. Translations live in `app/static/locales/pl.js`;
+French source strings remain the default catalog. API keys, stored detection
+identifiers, recordings and server configuration are independent of UI language.
+
+Frontend checks use only Node's built-in test runner: `node --test tests/test_i18n.cjs`.
+The Python test suite also runs these checks when Node is available.
 
 ## Why this exists
 
