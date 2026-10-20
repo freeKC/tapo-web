@@ -62,7 +62,12 @@ const TapoI18n = (() => {
     const nodes = [];
     while (walker.nextNode()) nodes.push(walker.currentNode);
     for (const node of nodes) {
-      if (!node.parentElement.closest("script, style")) node.textContent = t(node.textContent);
+      if (node.parentElement.closest("script, style")) continue;
+      const raw = node.textContent, core = raw.trim();
+      let out = t(raw);
+      // the HTML may wrap a sentence in line breaks: look it up without them
+      if (out === raw && core && core !== raw) out = raw.replace(core, t(core));
+      if (out !== raw) node.textContent = out;
     }
     for (const element of document.querySelectorAll("[title], [aria-label], [placeholder]")) {
       for (const attribute of ["title", "aria-label", "placeholder"]) {

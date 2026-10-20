@@ -30,18 +30,11 @@ import time
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from . import camera, config
+from . import camera, discovery
 from .control import create_control
 from .tapo_media import (BUSY_CODES, PLAYER_ID, ClipDemuxer, MediaError, MediaSession,
                          fetch_snapshot, stream_clip)
 from .tapo_v4 import TapoV4, TapoV4Error
-
-SD_DIR = config.RECORDINGS_DIR / "sd"
-SD_THUMBS = SD_DIR / ".thumbs"
-SD_PART = SD_DIR / ".part"
-SD_HLS = config.HLS_DIR / "sdplay"
-for _d in (SD_DIR, SD_THUMBS, SD_PART, SD_HLS):
-    _d.mkdir(parents=True, exist_ok=True)
 
 _ID_RE = re.compile(r"^(\d{9,11})-(\d{9,11})$")
 _DATE_RE = re.compile(r"^\d{8}$")
@@ -52,9 +45,6 @@ VIDEO_TYPES = {1: "continu", 2: "mouvement", 3: "sabotage", 4: "franchissement d
                5: "intrusion de zone", 6: "personne", 7: "pleurs de bébé", 8: "véhicule",
                9: "animal", 10: "sonnette", 11: "aboiement", 12: "miaulement", 13: "bris de verre",
                14: "alarme fumée", 33: "animal"}
-_media_lock = threading.Lock()   # one media session at a time, clips and thumbnails alike
-_clip_waiting = threading.Event()  # a clip fetch wants _media_lock (threading.Lock is not FIFO:
-                                   # without this the thumbnail worker re-takes it at once)
 
 
 class SdError(Exception):
@@ -67,186 +57,7 @@ class SdError(Exception):
 
 
 # --------------------------------------------------------------------------- #
-#  Control API session (one per camera host, shared, re-login handled inside)
-# --------------------------------------------------------------------------- #
-_client_lock = threading.Lock()
-_client: TapoV4 | None = None
-_user_id: int | None = None
-
-
-def _host() -> str:
-    st = camera.locate()
-    if not st.online or not st.host:
-        raise SdError("Caméra hors ligne.")
-    return st.host
-
-
-def _api() -> TapoV4:
-    global _client, _user_id
-    host = _host()
-    if not config.CLOUD_PASSWORD:
-        raise SdError("TAPO_CLOUD_PASSWORD manquant dans .env (mot de passe du compte TP-Link).")
-    with _client_lock:
-        if _client is None or _client.host != host:
-            _client = create_control(host, config.CLOUD_PASSWORD, username="admin")
-            _user_id = None
-        return _client
-
-
-def _call(fn):
-    """Run a control-API call, mapping low-level failures to SdError."""
-    try:
-        return fn(_api())
-    except TapoV4Error as e:
-        if e.code in (-40404, -40408):
-            raise SdError("La caméra a temporairement bloqué les connexions (trop d'essais). "
-                          "Réessayez dans quelques minutes.") from e
-        raise SdError(f"API de contrôle : {e}", code=e.code) from e
-    except OSError as e:          # requests' exceptions derive from OSError
-        camera.invalidate()
-        raise SdError(f"Caméra injoignable : {e.__class__.__name__}") from e
-
-
-def _uid() -> int:
-    global _user_id
-    if _user_id is None:
-        _user_id = int(_call(lambda c: c.get_user_id()))
-    return _user_id
-
-
-# --------------------------------------------------------------------------- #
-#  Small TTL cache (the camera dislikes being polled)
-# --------------------------------------------------------------------------- #
-_cache: dict[str, tuple[float, object]] = {}
-_cache_lock = threading.Lock()
-
-
-def _cached(key: str, ttl: float, producer, force: bool = False):
-    now = time.time()
-    with _cache_lock:
-        hit = _cache.get(key)
-        if hit and not force and now - hit[0] < ttl:
-            return hit[1]
-    value = producer()
-    with _cache_lock:
-        _cache[key] = (time.time(), value)
-    return value
-
-
-_tz: ZoneInfo | None = None
-
-
-def _zone():
-    """The camera's own time zone: the day boundaries of its listings use it."""
-    global _tz
-    if _tz is None:
-        try:
-            _tz = ZoneInfo(_call(lambda c: c.get_clock()).get("zone_id") or "")
-        except Exception:  # noqa: BLE001 - any failure -> server-local time
-            return None
-    return _tz
-
-
-def _local(ts: int) -> dt.datetime:
-    return dt.datetime.fromtimestamp(ts, tz=_zone())
-
-
-# --------------------------------------------------------------------------- #
-#  Status / listing
-# --------------------------------------------------------------------------- #
-def _size_bytes(s: str | None) -> int | None:
-    m = re.match(r"^(\d+)B$", s or "")
-    return int(m.group(1)) if m else None
-
-
-def status(force: bool = False) -> dict:
-    try:                                  # only a successful card read is cached
-        card = _cached("card", 30.0, lambda: _call(lambda c: c.get_sd_status()), force)
-    except SdError as e:
-        return {"available": False, "reason": str(e)}
-    if not card:
-        return {"available": False, "reason": "Aucune carte SD détectée par la caméra."}
-    ok = card.get("status") == "normal"
-    return {
-        "available": ok,
-        "reason": None if ok else f"État de la carte : {card.get('status')}",
-        "card": {
-            "status": card.get("status"),
-            "total": _size_bytes(card.get("video_total_space_accurate")),
-            "free": _size_bytes(card.get("video_free_space_accurate")),
-            "loop": card.get("loop_record_status") == "1",
-            "oldest": int(card["record_start_time"]) if str(card.get("record_start_time", "")).isdigit() else None,
-        },
-        "cached": cache_usage(),
-    }
-
-
-def days(force: bool = False) -> dict:
-    def produce():
-        today = dt.datetime.now(tz=_zone()).date()
-        found = _call(lambda c: c.search_days((today - dt.timedelta(days=730)).strftime("%Y%m%d"),
-                                              (today + dt.timedelta(days=1)).strftime("%Y%m%d")))
-        return sorted(d for d in found if _DATE_RE.match(d))
-    return {"days": _cached("days", 120.0, produce, force)}
-
-
-def _day_bounds(date: str) -> tuple[int, int]:
-    day = dt.datetime.strptime(date, "%Y%m%d").replace(tzinfo=_zone())
-    return int(day.timestamp()), int((day + dt.timedelta(days=1)).timestamp()) - 1
-
-
-def _list_day(date: str) -> list[dict]:
-    lo, hi = _day_bounds(date)
-    try:                                  # what the app uses on this firmware (DST-proof)
-        found = _call(lambda c: c.search_videos_utc(lo, hi, PLAYER_ID))
-        if found:
-            return found
-    except SdError as e:
-        # fall back only if the camera refuses the METHOD; offline / lockout / dead
-        # session must not trigger more logins through a second attempt
-        if e.code is None or e.code in (-40401, -40404, -40408, -40421):
-            raise
-    uid = _uid()                          # legacy listing by camera-local date
-    return _call(lambda c: c.get_recordings(date, user_id=uid))
-
-
-def recordings(date: str, force: bool = False) -> dict:
-    if not _DATE_RE.match(date or ""):
-        raise SdError("Date invalide (attendu : AAAAMMJJ).")
-    try:
-        day_start, _ = _day_bounds(date)
-    except ValueError:
-        raise SdError("Date invalide (attendu : AAAAMMJJ).")
-    raw = _cached(f"rec:{date}", 20.0, lambda: _list_day(date), force)
-    clips = []
-    for r in raw:
-        try:
-            start, end = int(r["startTime"]), int(r["endTime"])
-            vt = int(r.get("video_type") or r.get("vedio_type") or 2)
-        except (KeyError, TypeError, ValueError):
-            continue
-        if not 0 < end - start <= MAX_CLIP_SECONDS:
-            continue
-        cid = f"{start}-{end}"
-        path = _mp4_path(start, end)
-        clips.append({
-            "id": cid, "start": start, "end": end, "duration": end - start,
-            "time": _local(start).strftime("%H:%M:%S"),
-            "time_end": _local(end).strftime("%H:%M:%S"),
-            # wall-clock position on the 24 h axis (NOT elapsed time: 23 h / 25 h DST days)
-            "day_second": (lambda t: t.hour * 3600 + t.minute * 60 + t.second)(_local(start))
-                          if start >= day_start else 0,
-            "type": vt, "type_label": VIDEO_TYPES.get(vt, f"type {vt}"),
-            "cached": path.is_file(),
-            "size": path.stat().st_size if path.is_file() else None,
-            "job": fetcher.snapshot(cid),
-        })
-    clips.sort(key=lambda c: c["start"])
-    return {"date": date, "clips": clips}
-
-
-# --------------------------------------------------------------------------- #
-#  Local copies
+#  Clip ids and files (no camera needed)
 # --------------------------------------------------------------------------- #
 def parse_id(clip_id: str) -> tuple[int, int]:
     m = _ID_RE.match(clip_id or "")
@@ -258,18 +69,241 @@ def parse_id(clip_id: str) -> tuple[int, int]:
     return start, end
 
 
-def _mp4_path(start: int, end: int) -> Path:
-    return SD_DIR / f"sd_{start}_{end}.mp4"
+def _size_bytes(s: str | None) -> int | None:
+    m = re.match(r"^(\d+)B$", s or "")
+    return int(m.group(1)) if m else None
 
 
-def local_file(clip_id: str) -> Path | None:
-    p = _mp4_path(*parse_id(clip_id))
-    return p if p.is_file() else None
+# --------------------------------------------------------------------------- #
+#  One camera's SD card
+# --------------------------------------------------------------------------- #
+class SdCard:
+    """Everything the SD-card features need for one camera: its control-API
+    session, a small cache (the camera dislikes being polled), the thumbnail
+    worker, the fetch queue, its folders and its media-session lock.
+
+    Media sessions are strictly serialized per camera (one at a time): a camera
+    is fragile under load. Two cameras do not wait for each other."""
+
+    def __init__(self, cam):
+        self.cam = cam
+        self.dir = cam.recordings_dir / "sd"
+        self.thumbs_dir = self.dir / ".thumbs"
+        self.part_dir = self.dir / ".part"
+        self.hls_dir = cam.hls_dir / "sdplay"
+        for d in (self.dir, self.thumbs_dir, self.part_dir, self.hls_dir):
+            d.mkdir(parents=True, exist_ok=True)
+        self.media_lock = threading.Lock()      # clips and thumbnails alike
+        self.clip_waiting = threading.Event()   # a clip fetch wants media_lock (threading.Lock is
+                                                # not FIFO: without this the thumbnail worker
+                                                # re-takes it at once)
+        self._client_lock = threading.Lock()
+        self._client: TapoV4 | None = None
+        self._user_id: int | None = None
+        self._cache: dict[str, tuple[float, object]] = {}
+        self._cache_lock = threading.Lock()
+        self._tz: ZoneInfo | None = None
+        self.fetcher = Fetcher(self)
+        self.thumbs = _Thumbs(self)
+
+    # -- control API session (shared, re-login handled inside) ---------------
+    def host(self) -> str:
+        st = camera.locate(self.cam)
+        if not st.online or not st.host:
+            raise SdError("Caméra hors ligne.")
+        return st.host
+
+    def reset(self) -> None:
+        """Credentials or protocol changed: the next call logs in again."""
+        with self._client_lock:
+            self._client, self._user_id = None, None
+
+    def _learnt(self, protocol: str) -> None:
+        self.cam.registry.remember(self.cam, detected=protocol)
+
+    def api(self) -> TapoV4:
+        host = self.host()
+        if not self.cam.cloud_password:
+            raise SdError("Mot de passe du compte TP-Link manquant (réglages de la caméra).")
+        with self._client_lock:
+            if self._client is None or self._client.host != host:
+                cfg = self.cam.cfg
+                hint = cfg.detected or None
+                if cfg.protocol == "auto" and not hint:
+                    hint = (discovery.probe(host) or {}).get("protocol_hint") or None
+                self._client = create_control(host, self.cam.cloud_password, username="admin",
+                                              protocol=cfg.protocol, hint=hint, on_detect=self._learnt)
+                self._user_id = None
+            return self._client
+
+    def call(self, fn):
+        """Run a control-API call, mapping low-level failures to SdError."""
+        try:
+            return fn(self.api())
+        except TapoV4Error as e:
+            if e.code in (-40404, -40408):
+                raise SdError("La caméra a temporairement bloqué les connexions (trop d'essais). "
+                              "Réessayez dans quelques minutes.") from e
+            raise SdError(f"API de contrôle : {e}", code=e.code) from e
+        except OSError as e:          # requests' exceptions derive from OSError
+            camera.invalidate(self.cam)
+            raise SdError(f"Caméra injoignable : {e.__class__.__name__}") from e
+
+    def _uid(self) -> int:
+        if self._user_id is None:
+            self._user_id = int(self.call(lambda c: c.get_user_id()))
+        return self._user_id
+
+    def cached(self, key: str, ttl: float, producer, force: bool = False):
+        now = time.time()
+        with self._cache_lock:
+            hit = self._cache.get(key)
+            if hit and not force and now - hit[0] < ttl:
+                return hit[1]
+        value = producer()
+        with self._cache_lock:
+            self._cache[key] = (time.time(), value)
+        return value
+
+    def zone(self):
+        """The camera's own time zone: the day boundaries of its listings use it."""
+        if self._tz is None:
+            try:
+                self._tz = ZoneInfo(self.call(lambda c: c.get_clock()).get("zone_id") or "")
+            except Exception:  # noqa: BLE001 - any failure -> server-local time
+                return None
+        return self._tz
+
+    def local(self, ts: int) -> dt.datetime:
+        return dt.datetime.fromtimestamp(ts, tz=self.zone())
+
+    # -- status / listing -----------------------------------------------------
+    def status(self, force: bool = False) -> dict:
+        try:                                  # only a successful card read is cached
+            card = self.cached("card", 30.0, lambda: self.call(lambda c: c.get_sd_status()), force)
+        except SdError as e:
+            return {"available": False, "reason": str(e)}
+        if not card:
+            return {"available": False, "reason": "Aucune carte SD détectée par la caméra."}
+        ok = card.get("status") == "normal"
+        return {
+            "available": ok,
+            "reason": None if ok else f"État de la carte : {card.get('status')}",
+            "card": {
+                "status": card.get("status"),
+                "total": _size_bytes(card.get("video_total_space_accurate")),
+                "free": _size_bytes(card.get("video_free_space_accurate")),
+                "loop": card.get("loop_record_status") == "1",
+                "oldest": int(card["record_start_time"]) if str(card.get("record_start_time", "")).isdigit() else None,
+            },
+            "cached": self.cache_usage(),
+        }
+
+    def days(self, force: bool = False) -> dict:
+        def produce():
+            today = dt.datetime.now(tz=self.zone()).date()
+            found = self.call(lambda c: c.search_days((today - dt.timedelta(days=730)).strftime("%Y%m%d"),
+                                                      (today + dt.timedelta(days=1)).strftime("%Y%m%d")))
+            return sorted(d for d in found if _DATE_RE.match(d))
+        return {"days": self.cached("days", 120.0, produce, force)}
+
+    def day_bounds(self, date: str) -> tuple[int, int]:
+        day = dt.datetime.strptime(date, "%Y%m%d").replace(tzinfo=self.zone())
+        return int(day.timestamp()), int((day + dt.timedelta(days=1)).timestamp()) - 1
+
+    def list_day(self, date: str) -> list[dict]:
+        lo, hi = self.day_bounds(date)
+        try:                                  # what the app uses on this firmware (DST-proof)
+            found = self.call(lambda c: c.search_videos_utc(lo, hi, PLAYER_ID))
+            if found:
+                return found
+        except SdError as e:
+            # fall back only if the camera refuses the METHOD; offline / lockout / dead
+            # session must not trigger more logins through a second attempt
+            if e.code is None or e.code in (-40401, -40404, -40408, -40421):
+                raise
+        uid = self._uid()                     # legacy listing by camera-local date
+        return self.call(lambda c: c.get_recordings(date, user_id=uid))
+
+    def recordings(self, date: str, force: bool = False) -> dict:
+        if not _DATE_RE.match(date or ""):
+            raise SdError("Date invalide (attendu : AAAAMMJJ).")
+        try:
+            day_start, _ = self.day_bounds(date)
+        except ValueError:
+            raise SdError("Date invalide (attendu : AAAAMMJJ).")
+        raw = self.cached(f"rec:{date}", 20.0, lambda: self.list_day(date), force)
+        clips = []
+        for r in raw:
+            try:
+                start, end = int(r["startTime"]), int(r["endTime"])
+                vt = int(r.get("video_type") or r.get("vedio_type") or 2)
+            except (KeyError, TypeError, ValueError):
+                continue
+            if not 0 < end - start <= MAX_CLIP_SECONDS:
+                continue
+            cid = f"{start}-{end}"
+            path = self.mp4_path(start, end)
+            clips.append({
+                "id": cid, "start": start, "end": end, "duration": end - start,
+                "time": self.local(start).strftime("%H:%M:%S"),
+                "time_end": self.local(end).strftime("%H:%M:%S"),
+                # wall-clock position on the 24 h axis (NOT elapsed time: 23 h / 25 h DST days)
+                "day_second": (lambda t: t.hour * 3600 + t.minute * 60 + t.second)(self.local(start))
+                              if start >= day_start else 0,
+                "type": vt, "type_label": VIDEO_TYPES.get(vt, f"type {vt}"),
+                "cached": path.is_file(),
+                "size": path.stat().st_size if path.is_file() else None,
+                "job": self.fetcher.snapshot(cid),
+            })
+        clips.sort(key=lambda c: c["start"])
+        return {"date": date, "clips": clips}
+
+    # -- local copies ---------------------------------------------------------
+    def mp4_path(self, start: int, end: int) -> Path:
+        return self.dir / f"sd_{start}_{end}.mp4"
+
+    def local_file(self, clip_id: str) -> Path | None:
+        p = self.mp4_path(*parse_id(clip_id))
+        return p if p.is_file() else None
+
+    def download_name(self, clip_id: str) -> str:
+        start, end = parse_id(clip_id)
+        return f"tapo_sd_{self.local(start).strftime('%Y-%m-%d_%H-%M-%S')}_{end - start}s.mp4"
+
+    def thumbnail(self, clip_id: str) -> Path | None:
+        start, _end = parse_id(clip_id)
+        return self.thumbs.get(start)
+
+    def delete_local(self, clip_id: str) -> bool:
+        """Remove OUR copy only. The recording on the camera's SD card is untouched."""
+        p = self.local_file(clip_id)
+        if not p:
+            return False
+        p.unlink(missing_ok=True)
+        job = self.fetcher.get(clip_id)
+        if job is None or not job.active:
+            shutil.rmtree(self.hls_dir / clip_id, ignore_errors=True)
+        return True
+
+    def cache_usage(self) -> dict:
+        files = [f for f in self.dir.glob("sd_*.mp4") if f.is_file()]
+        return {"count": len(files), "bytes": sum(f.stat().st_size for f in files)}
+
+    # -- lifecycle ------------------------------------------------------------
+    def cleanup(self) -> None:
+        """Server start: leftovers of a previous run (HLS output, partial MP4s)."""
+        shutil.rmtree(self.hls_dir, ignore_errors=True)
+        self.hls_dir.mkdir(parents=True, exist_ok=True)
+        for f in self.part_dir.glob("*.mp4"):
+            f.unlink(missing_ok=True)
+
+    def stop_all(self) -> None:
+        self.fetcher.stop_all()
 
 
-def download_name(clip_id: str) -> str:
-    start, end = parse_id(clip_id)
-    return f"tapo_sd_{_local(start).strftime('%Y-%m-%d_%H-%M-%S')}_{end - start}s.mp4"
+def card_for(cam) -> SdCard:
+    return cam.service("sd", lambda: SdCard(cam))
 
 
 class _Thumbs:
@@ -281,16 +315,16 @@ class _Thumbs:
     LINGER = 1.0               # keep the session open this long for follow-up requests
     RETRY_AFTER = 120.0
 
-    def __init__(self):
+    def __init__(self, card: SdCard):
+        self.card = card
         self._lock = threading.Lock()
         self._waiters: dict[int, threading.Event] = {}
         self._failed: dict[int, float] = {}      # start -> do not retry before (epoch)
         self._q: queue.Queue[int] = queue.Queue()
         threading.Thread(target=self._loop, daemon=True).start()
 
-    @staticmethod
-    def path(start: int) -> Path:
-        return SD_THUMBS / f"cam_{start}.jpg"
+    def path(self, start: int) -> Path:
+        return self.card.thumbs_dir / f"cam_{start}.jpg"
 
     def get(self, start: int, timeout: float = 8.0) -> Path | None:
         """The cached snapshot, fetching it if needed. None = not available *now*
@@ -307,7 +341,7 @@ class _Thumbs:
                 ev = self._waiters[start] = threading.Event()
                 self._q.put(start)
         deadline = time.monotonic() + timeout
-        while not ev.is_set() and not fetcher.busy() and time.monotonic() < deadline:
+        while not ev.is_set() and not self.card.fetcher.busy() and time.monotonic() < deadline:
             ev.wait(0.25)                 # the snapshot stays queued; the page asks again later
         return p if p.is_file() else None
 
@@ -322,13 +356,14 @@ class _Thumbs:
             ev.set()
 
     def _loop(self):
+        card = self.card
         while True:
             start = self._q.get()
             batch_left = self.BATCH
             try:
-                while _clip_waiting.is_set():         # a clip fetch goes first
+                while card.clip_waiting.is_set():     # a clip fetch goes first
                     time.sleep(0.1)
-                with _media_lock, MediaSession(_host(), config.CLOUD_PASSWORD, timeout=8.0) as sess:
+                with card.media_lock, MediaSession(card.host(), card.cam.cloud_password, timeout=8.0) as sess:
                     while start is not None:
                         jpg = fetch_snapshot(sess, start)
                         if jpg:
@@ -337,7 +372,7 @@ class _Thumbs:
                             os.replace(tmp, self.path(start))
                         self._done(start, None if jpg else self.RETRY_AFTER)
                         start, batch_left = None, batch_left - 1
-                        if batch_left > 0 and not _clip_waiting.is_set():
+                        if batch_left > 0 and not card.clip_waiting.is_set():
                             try:
                                 start = self._q.get(timeout=self.LINGER)
                             except queue.Empty:
@@ -346,31 +381,6 @@ class _Thumbs:
                 if start is not None:
                     self._done(start, 15.0)
                 time.sleep(2.0)
-
-
-thumbs = _Thumbs()
-
-
-def thumbnail(clip_id: str) -> Path | None:
-    start, _end = parse_id(clip_id)
-    return thumbs.get(start)
-
-
-def delete_local(clip_id: str) -> bool:
-    """Remove OUR copy only. The recording on the camera's SD card is untouched."""
-    p = local_file(clip_id)
-    if not p:
-        return False
-    p.unlink(missing_ok=True)
-    job = fetcher.get(clip_id)
-    if job is None or not job.active:
-        shutil.rmtree(SD_HLS / clip_id, ignore_errors=True)
-    return True
-
-
-def cache_usage() -> dict:
-    files = [f for f in SD_DIR.glob("sd_*.mp4") if f.is_file()]
-    return {"count": len(files), "bytes": sum(f.stat().st_size for f in files)}
 
 
 # --------------------------------------------------------------------------- #
@@ -571,7 +581,7 @@ _KIND_RANK = {"play": 0, "download": 1, "analyze": 2}
 
 
 class Job:
-    def __init__(self, clip_id: str, kind: str):
+    def __init__(self, clip_id: str, kind: str, hls_root: Path):
         self.id = clip_id
         self.start, self.end = parse_id(clip_id)
         self.kinds = {kind}                   # who wants it: "play" | "download" | "analyze"
@@ -583,7 +593,7 @@ class Job:
         self.created = time.time()
         self.finished_at: float | None = None
         self.last_access = time.time()
-        self.hls_dir = SD_HLS / clip_id
+        self.hls_dir = hls_root / clip_id
 
     @property
     def kind(self) -> str:
@@ -612,7 +622,10 @@ class Job:
 
 
 class Fetcher:
-    def __init__(self):
+    """The clip fetch queue of one camera (SdCard.fetcher)."""
+
+    def __init__(self, card: "SdCard"):
+        self.card = card
         self._jobs: dict[str, Job] = {}
         self._queue: list[Job] = []
         self._lock = threading.Lock()
@@ -628,7 +641,7 @@ class Fetcher:
         if kind not in (_KIND_RANK if internal else ("play", "download")):
             raise SdError("Type de tâche invalide.")
         parse_id(clip_id)
-        if local_file(clip_id):
+        if self.card.local_file(clip_id):
             return {"id": clip_id, "kind": kind, "state": "done", "progress": 0, "total": 0,
                     "error": None, "hls_ready": False, "cached": True}
         with self._wake:
@@ -638,7 +651,7 @@ class Fetcher:
             if job and job.active and (not job.cancel.is_set() or job.state == "finalizing"):
                 job.kinds.add(kind)
             else:
-                job = Job(clip_id, kind)
+                job = Job(clip_id, kind, self.card.hls_dir)
                 self._jobs[clip_id] = job
                 self._queue.append(job)
             if kind == "play":                # the viewer moved on: drop other play-only jobs
@@ -718,14 +731,15 @@ class Fetcher:
                 time.sleep(1.0)               # let the camera release the media session
 
     def _run(self, job: Job):
-        if local_file(job.id):                # a late-cancelled predecessor produced the file
+        card = self.card
+        if card.local_file(job.id):           # a late-cancelled predecessor produced the file
             job.state = "done"
             return
-        host = _host()
+        host = card.host()
         job.state = "connecting"
         shutil.rmtree(job.hls_dir, ignore_errors=True)
         job.hls_dir.mkdir(parents=True, exist_ok=True)
-        part = SD_PART / f"{job.id}.mp4"
+        part = card.part_dir / f"{job.id}.mp4"
         part.unlink(missing_ok=True)
         mux = _Mux(job, part)
         demux = ClipDemuxer(mux.video, mux.audio)
@@ -752,7 +766,7 @@ class Fetcher:
                 start_mux()                   # clip shorter than the pre-roll window
             job.state = "finalizing"
             mux.finish()                      # EOF -> ffmpeg writes ENDLIST + moov
-            os.replace(part, _mp4_path(job.start, job.end))
+            os.replace(part, card.mp4_path(job.start, job.end))
             job.progress = job.total
             job.state = "done"
             ok = True
@@ -761,17 +775,17 @@ class Fetcher:
                 mux.abort()
                 part.unlink(missing_ok=True)
 
-    @staticmethod
-    def _pull(host: str, job: Job, demux: ClipDemuxer, on_data):
-        _clip_waiting.set()                   # thumbnails yield: see _Thumbs._loop
+    def _pull(self, host: str, job: Job, demux: ClipDemuxer, on_data):
+        card = self.card
+        card.clip_waiting.set()               # thumbnails yield: see _Thumbs._loop
         try:
-            _media_lock.acquire()
+            card.media_lock.acquire()
         finally:
-            _clip_waiting.clear()
+            card.clip_waiting.clear()
         try:
             for attempt in range(4):
                 try:
-                    with MediaSession(host, config.CLOUD_PASSWORD, timeout=20.0) as sess:
+                    with MediaSession(host, card.cam.cloud_password, timeout=20.0) as sess:
                         try:
                             stream_clip(sess, job.start, job.end, demux,
                                         should_stop=job.cancel.is_set, on_data=on_data)
@@ -793,7 +807,7 @@ class Fetcher:
                 raise SdError(f"Flux interrompu par la caméra ({e}).") from e
             # else: we already have (almost) the whole clip -> keep it
         finally:
-            _media_lock.release()
+            card.media_lock.release()
 
     # -- housekeeping ---------------------------------------------------------
     def _reap_loop(self):
@@ -810,13 +824,8 @@ class Fetcher:
                         del self._jobs[cid]
 
 
-def startup():
+def startup(cams) -> None:
     """Server start (FastAPI lifespan) - NOT at import: a second process importing
     this module (tests, scripts, another instance) must not wipe live HLS output."""
-    shutil.rmtree(SD_HLS, ignore_errors=True)
-    SD_HLS.mkdir(parents=True, exist_ok=True)
-    for f in SD_PART.glob("*.mp4"):
-        f.unlink(missing_ok=True)
-
-
-fetcher = Fetcher()
+    for cam in cams:
+        card_for(cam).cleanup()

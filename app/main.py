@@ -1,54 +1,71 @@
-"""Tapo Web - a local web app to view, record and download from the camera.
+"""Tapo Web - a local web app to view, record and download from Tapo cameras.
 
 Backend: FastAPI. All camera access stays on the LAN; credentials live only in
-.env and are never exposed to the browser.
+cameras.json / .env and are never exposed to the browser.
+
+Every camera route exists twice: under /cams/<id>/... for a given camera, and
+without the prefix for the first camera (what older pages and scripts use).
 """
 from __future__ import annotations
 
+import re
 import subprocess
+import threading
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Query, Request
-from fastapi.responses import (
-    FileResponse,
-    JSONResponse,
-    PlainTextResponse,
-    Response,
-)
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, Request
+from fastapi.responses import FileResponse, PlainTextResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-from . import animals, camera, config, library, sd
+from . import animals, camera, checks, config, discovery, library, sd
+from .cameras import Camera, CameraError, registry
 from .ptz import ptz_available, ptz_move
-from .recorder import recorder
-from .streams import live_manager
+from .recorder import recorder_for
+from .streams import live_for
 
 STATIC = Path(__file__).resolve().parent / "static"
 
 
+def _locate_all():
+    for cam in registry().list():
+        try:
+            camera.locate(cam, force=True)
+            camera.enrich_identity(cam)
+        except Exception:  # noqa: BLE001 - best effort, the UI copes if offline
+            pass
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    sd.startup()
+    sd.startup(registry().list())
     animals.startup()
-    # Locate the camera at startup (best effort; UI copes if offline).
-    try:
-        camera.locate(force=True)
-        camera.enrich_identity()
-    except Exception:
-        pass
+    # Locate the cameras in the background (a subnet scan can take a few seconds).
+    threading.Thread(target=_locate_all, daemon=True).start()
     yield
     # Clean shutdown: stop every ffmpeg we started.
-    live_manager.stop_all()
-    recorder.stop_all()
-    sd.fetcher.stop_all()
+    registry().stop_all()
     animals.analyzer.stop()
 
 
 app = FastAPI(title="Tapo Web", lifespan=lifespan)
+cam_routes = APIRouter()
 
 
-def _require_host() -> str:
-    st = camera.locate()
+def current_camera(request: Request) -> Camera:
+    """The camera of /cams/<id>/..., or the first one."""
+    cid = request.path_params.get("cid")
+    reg = registry()
+    cam = reg.get(cid) if cid else reg.default()
+    if cam is None:
+        if cid:
+            raise HTTPException(404, "caméra inconnue")
+        raise HTTPException(503, "Aucune caméra configurée.")
+    return cam
+
+
+def _require_host(cam: Camera) -> str:
+    st = camera.locate(cam)
     if not st.online or not st.host:
         raise HTTPException(status_code=503,
                             detail="Caméra introuvable sur le LAN (hors ligne ou IP changée).")
@@ -56,71 +73,182 @@ def _require_host() -> str:
 
 
 # --------------------------------------------------------------------------- #
-#  Status / discovery
-# --------------------------------------------------------------------------- #
-@app.get("/api/status")
-def api_status():
-    st = camera.locate()
-    return {
-        "online": st.online,
-        "host": st.host,
-        "model": st.model,
-        "firmware": st.firmware,
-        "streams": list(config.STREAMS.keys()),
-        "ptz": ptz_available(st.host) if (st.online and st.host) else False,
-        "continuous": recorder.continuous_running(),
-        "recordings_dir": str(config.RECORDINGS_DIR),
-    }
-
-
-@app.post("/api/discover")
-def api_discover():
-    st = camera.locate(force=True)
-    camera.enrich_identity()
-    return {"online": st.online, "host": st.host, "model": st.model, "firmware": st.firmware}
-
-
-# --------------------------------------------------------------------------- #
-#  Settings: camera credentials are typed in the browser and stored in .env (600)
+#  Cameras and account settings: typed in the browser, stored in cameras.json (600)
 # --------------------------------------------------------------------------- #
 def _is_local(request: Request) -> bool:
     return bool(request.client) and request.client.host in ("127.0.0.1", "::1", "localhost")
 
 
+def _can_edit(request: Request) -> bool:
+    """Only from this machine (or while nothing is configured yet): a LAN visitor
+    must not be able to re-point the app or overwrite the stored credentials."""
+    return _is_local(request) or registry().needs_setup()
+
+
+def _check_edit(request: Request) -> None:
+    if not _can_edit(request):
+        raise HTTPException(403, "Modifiable uniquement depuis la machine qui héberge l'application.")
+
+
+async def _body(request: Request) -> dict:
+    try:
+        body = await request.json()
+    except ValueError:
+        body = None
+    if not isinstance(body, dict):
+        raise HTTPException(400, "requête invalide")
+    return {k: v for k, v in body.items() if isinstance(v, (str, bool))}
+
+
+def _overview(request: Request) -> dict:
+    reg = registry()
+    return {"cameras": [c.public() for c in reg.list()], "needs_setup": reg.needs_setup(),
+            "can_edit": _can_edit(request), "subnet": reg.subnet or config.DEFAULT_SUBNET,
+            "has_cloud_password": bool(reg.cloud_password)}
+
+
+def _changed(cam: Camera) -> None:
+    """Credentials, address or protocol changed: log in again, look again."""
+    card = cam.peek("sd")
+    if card is not None:
+        card.reset()
+    camera.invalidate(cam)
+
+
+@app.get("/api/cameras")
+def cameras_list(request: Request):
+    return _overview(request)
+
+
+@app.post("/api/cameras")
+async def cameras_add(request: Request):
+    _check_edit(request)
+    values = await _body(request)
+    try:
+        cam = registry().add(values)
+    except CameraError as e:
+        raise HTTPException(400, str(e))
+    camera.invalidate(cam)
+    return cam.public()
+
+
+@app.put("/api/cameras/{cid}")
+async def cameras_update(cid: str, request: Request):
+    _check_edit(request)
+    values = await _body(request)
+    try:
+        cam = registry().update(cid, values)
+    except CameraError as e:
+        raise HTTPException(404 if "inconnue" in str(e) else 400, str(e))
+    _changed(cam)
+    return cam.public()
+
+
+@app.delete("/api/cameras/{cid}")
+def cameras_delete(cid: str, request: Request):
+    _check_edit(request)
+    if not registry().remove(cid):
+        raise HTTPException(404, "caméra inconnue")
+    return {"deleted": cid}
+
+
 @app.get("/api/setup")
 def setup_state(request: Request):
-    st = config.configured()
-    st["needs_setup"] = not (st["camera_account"] and st["cloud_password"])
-    st["can_edit"] = _is_local(request) or st["needs_setup"]
-    return st
+    return _overview(request)
 
 
 @app.post("/api/setup")
 async def setup_save(request: Request):
-    """Only from this machine (or when nothing is configured yet): a LAN visitor must
-    not be able to re-point the app or overwrite the stored credentials."""
-    st = config.configured()
-    if not (_is_local(request) or not (st["camera_account"] and st["cloud_password"])):
-        raise HTTPException(403, "Modifiable uniquement depuis la machine qui héberge l'application.")
-    body = await request.json()
-    if not isinstance(body, dict):
-        raise HTTPException(400, "requête invalide")
-    config.save_credentials({k: v for k, v in body.items() if isinstance(v, str)})
-    sd._client = None
-    camera.invalidate()
-    return {"saved": True, **{k: v for k, v in config.configured().items() if k != "user"}}
+    """Account-wide settings (TP-Link password, subnet). The older single-camera
+    form also sends host / user / password: they go to the first camera."""
+    _check_edit(request)
+    values = await _body(request)
+    reg = registry()
+    try:
+        reg.set_account({k: values[k] for k in ("subnet", "cloud_password") if k in values})
+        cam_values = {k: values[k] for k in ("host", "user", "password") if values.get(k)}
+        if cam_values:
+            cam = reg.default()
+            cam = reg.update(cam.id, cam_values) if cam else reg.add(cam_values)
+    except CameraError as e:
+        raise HTTPException(400, str(e))
+    for cam in reg.list():
+        _changed(cam)
+    return {"saved": True, **_overview(request)}
+
+
+@app.post("/api/discovery")
+async def discovery_scan(request: Request):
+    """Tapo cameras on the subnet, marked with the configured camera they are."""
+    _check_edit(request)
+    try:
+        values = await _body(request)
+    except HTTPException:
+        values = {}
+    subnet = str(values.get("subnet") or registry().subnet or config.DEFAULT_SUBNET).strip().rstrip(".")
+    if not re.fullmatch(r"\d{1,3}\.\d{1,3}\.\d{1,3}", subnet):
+        raise HTTPException(400, "Sous-réseau invalide (attendu : 192.168.1).")
+    found = discovery.scan(subnet)
+    cams = registry().list()
+    for dev in found:
+        dev["camera"] = next((c.id for c in cams if (dev.get("mac") and dev["mac"] == c.cfg.mac)
+                              or dev["ip"] in (c.state.host, c.cfg.host)), None)
+    return {"subnet": subnet, "devices": found}
+
+
+# --------------------------------------------------------------------------- #
+#  Status / discovery of one camera
+# --------------------------------------------------------------------------- #
+@cam_routes.get("/api/status")
+def api_status(cam: Camera = Depends(current_camera)):
+    st = camera.locate(cam)
+    return {
+        "id": cam.id,
+        "name": cam.name,
+        "online": st.online,
+        "host": st.host,
+        "model": st.model,
+        "firmware": st.firmware,
+        "streams": list(config.STREAMS.keys()),
+        "ptz": ptz_available(cam, st.host) if (st.online and st.host) else False,
+        "continuous": recorder_for(cam).continuous_running(),
+        "recordings_dir": str(cam.recordings_dir),
+    }
+
+
+@cam_routes.post("/api/discover")
+def api_discover(cam: Camera = Depends(current_camera)):
+    st = camera.locate(cam, force=True)
+    camera.enrich_identity(cam)
+    return {"online": st.online, "host": st.host, "model": st.model, "firmware": st.firmware}
+
+
+@cam_routes.post("/api/check")
+def api_check(request: Request, cam: Camera = Depends(current_camera)):
+    """Connection test (network, camera account, TP-Link account): logs in once."""
+    _check_edit(request)
+    try:
+        return checks.run(cam)
+    except checks.TooSoon as e:
+        raise HTTPException(429, str(e))
+
+
+@cam_routes.get("/api/diagnostics")
+def api_diagnostics(cam: Camera = Depends(current_camera)):
+    """What to paste in a camera report: no address, MAC or password in it."""
+    return checks.report(cam)
 
 
 # --------------------------------------------------------------------------- #
 #  Snapshot
 # --------------------------------------------------------------------------- #
-@app.get("/api/snapshot")
-def api_snapshot(stream: str = Query(config.DEFAULT_STREAM)):
+@cam_routes.get("/api/snapshot")
+def api_snapshot(stream: str = Query(config.DEFAULT_STREAM), cam: Camera = Depends(current_camera)):
     stream_path = config.STREAMS.get(stream)
     if not stream_path:
         raise HTTPException(400, "flux inconnu")
-    host = _require_host()
-    url = config.rtsp_url(host, stream_path)
+    host = _require_host(cam)
+    url = cam.rtsp_url(host, stream_path)
     try:
         out = subprocess.run(
             ["ffmpeg", "-loglevel", "error", "-rtsp_transport", "tcp",
@@ -129,10 +257,10 @@ def api_snapshot(stream: str = Query(config.DEFAULT_STREAM)):
             capture_output=True, timeout=18,
         )
     except subprocess.SubprocessError:
-        camera.invalidate()  # camera may have moved/dropped -> re-discover next time
+        camera.invalidate(cam)  # camera may have moved/dropped -> re-discover next time
         raise HTTPException(502, "échec de la capture d'image")
     if not out.stdout:
-        camera.invalidate()
+        camera.invalidate(cam)
         raise HTTPException(502, "pas d'image (caméra injoignable ou flux non prêt)")
     return Response(content=out.stdout, media_type="image/jpeg")
 
@@ -140,15 +268,15 @@ def api_snapshot(stream: str = Query(config.DEFAULT_STREAM)):
 # --------------------------------------------------------------------------- #
 #  Live view (HLS)
 # --------------------------------------------------------------------------- #
-@app.get("/live/{stream}/index.m3u8")
-def live_playlist(stream: str):
+@cam_routes.get("/live/{stream}/index.m3u8")
+def live_playlist(stream: str, cam: Camera = Depends(current_camera)):
     if stream not in config.STREAMS:
         raise HTTPException(404, "flux inconnu")
-    host = _require_host()
+    host = _require_host(cam)
     try:
-        s = live_manager.ensure(stream, host)
+        s = live_for(cam).ensure(stream, host)
     except (KeyError, RuntimeError) as e:
-        camera.invalidate()  # ffmpeg couldn't open the stream -> camera may have moved
+        camera.invalidate(cam)  # ffmpeg couldn't open the stream -> camera may have moved
         raise HTTPException(502, f"live indisponible: {e}")
     if not s.playlist.exists():
         raise HTTPException(503, "flux en cours de démarrage, réessayez")
@@ -156,26 +284,27 @@ def live_playlist(stream: str):
                         headers={"Cache-Control": "no-store"})
 
 
-@app.get("/live/{stream}/{segment}")
-def live_segment(stream: str, segment: str):
+@cam_routes.get("/live/{stream}/{segment}")
+def live_segment(stream: str, segment: str, cam: Camera = Depends(current_camera)):
     if stream not in config.STREAMS:
         raise HTTPException(404, "flux inconnu")
     if not segment.endswith(".ts") or "/" in segment or ".." in segment:
         raise HTTPException(404, "segment invalide")
-    live_manager.touch(stream)
-    seg = config.HLS_DIR / stream / segment
+    live = live_for(cam)
+    live.touch(stream)
+    seg = live._get(stream).dir / segment
     if not seg.is_file():
         raise HTTPException(404, "segment expiré")
     return FileResponse(seg, media_type="video/mp2t",
                         headers={"Cache-Control": "no-store"})
 
 
-@app.post("/api/live/{stream}/stop")
-def live_stop(stream: str):
+@cam_routes.post("/api/live/{stream}/stop")
+def live_stop(stream: str, cam: Camera = Depends(current_camera)):
     if stream not in config.STREAMS:
         raise HTTPException(404, "flux inconnu")
     try:
-        live_manager._get(stream).stop()
+        live_for(cam)._get(stream).stop()
     except KeyError:
         pass
     return {"stopped": True}
@@ -184,44 +313,44 @@ def live_stop(stream: str):
 # --------------------------------------------------------------------------- #
 #  Recording (local DVR)
 # --------------------------------------------------------------------------- #
-@app.post("/api/record/start")
-def record_start(stream: str = Query(config.DEFAULT_STREAM)):
+@cam_routes.post("/api/record/start")
+def record_start(stream: str = Query(config.DEFAULT_STREAM), cam: Camera = Depends(current_camera)):
     if stream not in config.STREAMS:
         raise HTTPException(400, "flux inconnu")
-    host = _require_host()
-    rec = recorder.start_manual(host, stream)
+    host = _require_host(cam)
+    rec = recorder_for(cam).start_manual(host, stream)
     return {"id": rec.id, "target": rec.target, "stream": rec.stream}
 
 
-@app.post("/api/record/stop")
-def record_stop(id: str = Query(...)):
-    ok = recorder.stop(id)
+@cam_routes.post("/api/record/stop")
+def record_stop(id: str = Query(...), cam: Camera = Depends(current_camera)):
+    ok = recorder_for(cam).stop(id)
     if not ok:
         raise HTTPException(404, "enregistrement inconnu")
     return {"stopped": True, "id": id}
 
 
-@app.get("/api/record/status")
-def record_status():
-    return {"active": recorder.status()}
+@cam_routes.get("/api/record/status")
+def record_status(cam: Camera = Depends(current_camera)):
+    return {"active": recorder_for(cam).status()}
 
 
-@app.post("/api/continuous/start")
-def continuous_start(stream: str = Query(config.DEFAULT_STREAM)):
+@cam_routes.post("/api/continuous/start")
+def continuous_start(stream: str = Query(config.DEFAULT_STREAM), cam: Camera = Depends(current_camera)):
     if stream not in config.STREAMS:
         raise HTTPException(400, "flux inconnu")
-    host = _require_host()
-    rec = recorder.start_continuous(host, stream)
+    host = _require_host(cam)
+    rec = recorder_for(cam).start_continuous(host, stream)
     return {"id": rec.id, "kind": rec.kind, "stream": rec.stream,
             "segment_seconds": config.SEGMENT_SECONDS}
 
 
-@app.post("/api/continuous/stop")
-def continuous_stop():
-    stopped = 0
-    for r in recorder.status():
+@cam_routes.post("/api/continuous/stop")
+def continuous_stop(cam: Camera = Depends(current_camera)):
+    rec, stopped = recorder_for(cam), 0
+    for r in rec.status():
         if r["kind"] == "continuous":
-            if recorder.stop(r["id"]):
+            if rec.stop(r["id"]):
                 stopped += 1
     return {"stopped": stopped}
 
@@ -229,40 +358,40 @@ def continuous_stop():
 # --------------------------------------------------------------------------- #
 #  Library
 # --------------------------------------------------------------------------- #
-@app.get("/api/recordings")
-def recordings_list():
-    return {"recordings": library.listing()}
+@cam_routes.get("/api/recordings")
+def recordings_list(cam: Camera = Depends(current_camera)):
+    return {"recordings": library.listing(cam.recordings_dir)}
 
 
-@app.get("/api/recordings/{name}/thumb")
-def recording_thumb(name: str):
-    thumb = library.thumbnail(name)
+@cam_routes.get("/api/recordings/{name}/thumb")
+def recording_thumb(name: str, cam: Camera = Depends(current_camera)):
+    thumb = library.thumbnail(cam.recordings_dir, name)
     if not thumb:
         raise HTTPException(404, "vignette indisponible")
     return FileResponse(thumb, media_type="image/jpeg",
                         headers={"Cache-Control": "max-age=3600"})
 
 
-@app.get("/api/recordings/{name}/play")
-def recording_play(name: str):
-    p = library.resolve(name)
+@cam_routes.get("/api/recordings/{name}/play")
+def recording_play(name: str, cam: Camera = Depends(current_camera)):
+    p = library.resolve(cam.recordings_dir, name)
     if not p:
         raise HTTPException(404, "introuvable")
     # Starlette FileResponse honours Range requests -> in-browser seeking.
     return FileResponse(p, media_type="video/mp4")
 
 
-@app.get("/api/recordings/{name}/download")
-def recording_download(name: str):
-    p = library.resolve(name)
+@cam_routes.get("/api/recordings/{name}/download")
+def recording_download(name: str, cam: Camera = Depends(current_camera)):
+    p = library.resolve(cam.recordings_dir, name)
     if not p:
         raise HTTPException(404, "introuvable")
     return FileResponse(p, media_type="video/mp4", filename=p.name)
 
 
-@app.delete("/api/recordings/{name}")
-def recording_delete(name: str):
-    if not library.delete(name):
+@cam_routes.delete("/api/recordings/{name}")
+def recording_delete(name: str, cam: Camera = Depends(current_camera)):
+    if not library.delete(cam.recordings_dir, name):
         raise HTTPException(404, "introuvable")
     return {"deleted": name}
 
@@ -270,16 +399,16 @@ def recording_delete(name: str):
 # --------------------------------------------------------------------------- #
 #  PTZ (pan/tilt models, via ONVIF)
 # --------------------------------------------------------------------------- #
-@app.post("/api/ptz")
-def api_ptz(direction: str = Query(...)):
-    host = _require_host()
-    if not ptz_move(host, direction):
+@cam_routes.post("/api/ptz")
+def api_ptz(direction: str = Query(...), cam: Camera = Depends(current_camera)):
+    host = _require_host(cam)
+    if not ptz_move(cam, host, direction):
         raise HTTPException(400, "PTZ indisponible ou direction invalide")
     return {"moved": direction}
 
 
 # --------------------------------------------------------------------------- #
-#  SD-card recordings (camera control API "V4" + media port, see sd.py)
+#  SD-card recordings (camera control API + media port, see sd.py)
 # --------------------------------------------------------------------------- #
 def _sd(fn, *args, **kwargs):
     try:
@@ -288,161 +417,169 @@ def _sd(fn, *args, **kwargs):
         raise HTTPException(status_code=502, detail=str(e))
 
 
-@app.get("/api/sd/status")
-def sd_status(force: bool = Query(False)):
-    return _sd(sd.status, force)
+def _card(cam: Camera = Depends(current_camera)) -> sd.SdCard:
+    return sd.card_for(cam)
 
 
-@app.get("/api/sd/days")
-def sd_days(force: bool = Query(False)):
-    return _sd(sd.days, force)
+@cam_routes.get("/api/sd/status")
+def sd_status(force: bool = Query(False), card: sd.SdCard = Depends(_card)):
+    return _sd(card.status, force)
 
 
-@app.get("/api/sd/recordings")
-def sd_recordings(date: str = Query(...), force: bool = Query(False)):
-    out = _sd(sd.recordings, date, force)
-    found = animals.results_for_day(date)
-    queued = set(animals.analyzer.status()["queued_ids"])
-    current = animals.analyzer.current
+@cam_routes.get("/api/sd/days")
+def sd_days(force: bool = Query(False), card: sd.SdCard = Depends(_card)):
+    return _sd(card.days, force)
+
+
+@cam_routes.get("/api/sd/recordings")
+def sd_recordings(date: str = Query(...), force: bool = Query(False), cam: Camera = Depends(current_camera)):
+    out = _sd(sd.card_for(cam).recordings, date, force)
+    found = animals.store_for(cam).results_for_day(date)
+    queued = set(animals.analyzer.status(cam)["queued_ids"])
+    current = animals.analyzer.current_for(cam)
     for c in out["clips"]:
         c["analysis"] = found.get(c["id"])
         c["analyzing"] = "running" if c["id"] == current else "queued" if c["id"] in queued else None
     return out
 
 
-@app.get("/api/animals/species")
-def animals_species():
-    return {"species": animals.species(), "status": {k: v for k, v in animals.analyzer.status().items() if k != "queued_ids"},
-            "auto": animals.AUTO}
+@cam_routes.get("/api/animals/species")
+def animals_species(cam: Camera = Depends(current_camera)):
+    status = {k: v for k, v in animals.analyzer.status(cam).items() if k != "queued_ids"}
+    return {"species": animals.store_for(cam).species(), "status": status, "auto": animals.AUTO}
 
 
-@app.get("/api/animals/clips")
-def animals_clips(key: str = Query("all")):
-    return {"key": key, "clips": animals.clips_with(key)}
+@cam_routes.get("/api/animals/clips")
+def animals_clips(key: str = Query("all"), cam: Camera = Depends(current_camera)):
+    return {"key": key, "clips": animals.store_for(cam).clips_with(key)}
 
 
-@app.get("/api/sd/animals/status")
-def sd_animals_status():
-    st = animals.analyzer.status()
+@cam_routes.get("/api/sd/animals/status")
+def sd_animals_status(cam: Camera = Depends(current_camera)):
+    st = animals.analyzer.status(cam)
     st.pop("queued_ids", None)
     return st
 
 
-@app.get("/api/sd/animals/days")
-def sd_animals_days():
-    return {"days": animals.days_with_animals()}
+@cam_routes.get("/api/sd/animals/days")
+def sd_animals_days(cam: Camera = Depends(current_camera)):
+    return {"days": animals.store_for(cam).days_with_animals()}
 
 
-@app.post("/api/sd/animals/analyze")
-def sd_animals_analyze(date: str = Query(...), redo: bool = Query(False)):
+@cam_routes.post("/api/sd/animals/analyze")
+def sd_animals_analyze(date: str = Query(...), redo: bool = Query(False), cam: Camera = Depends(current_camera)):
     """Queue every clip of a day for animal detection (lowest priority, in the background)."""
-    clips = _sd(sd.recordings, date, False)["clips"]
-    n = animals.analyzer.enqueue([(c["id"], date) for c in clips], redo=redo)
+    clips = _sd(sd.card_for(cam).recordings, date, False)["clips"]
+    n = animals.analyzer.enqueue(cam, [(c["id"], date) for c in clips], redo=redo)
     return {"queued": n, "total": len(clips)}
 
 
-@app.post("/api/sd/animals/stop")
-def sd_animals_stop():
-    return {"cleared": animals.analyzer.clear()}
+@cam_routes.post("/api/sd/animals/stop")
+def sd_animals_stop(cam: Camera = Depends(current_camera)):
+    return {"cleared": animals.analyzer.clear(cam)}
 
 
-@app.post("/api/sd/clips/{clip_id}/untag")
-def sd_untag(clip_id: str, key: str = Query(...), undo: bool = Query(False)):
+@cam_routes.post("/api/sd/clips/{clip_id}/untag")
+def sd_untag(clip_id: str, key: str = Query(...), undo: bool = Query(False), cam: Camera = Depends(current_camera)):
     """Manual correction: this label is wrong for this clip. Survives re-analysis."""
-    _sd(animals.reject, clip_id, key, undo)
+    _sd(animals.store_for(cam).reject, clip_id, key, undo)
     return {"clip": clip_id, "removed": key, "undo": undo}
 
 
-@app.get("/api/sd/clips/{clip_id}/animal")
-def sd_animal_frame(clip_id: str):
-    p = _sd(animals.frame_path, clip_id)
+@cam_routes.get("/api/sd/clips/{clip_id}/animal")
+def sd_animal_frame(clip_id: str, cam: Camera = Depends(current_camera)):
+    p = _sd(animals.store_for(cam).frame_path, clip_id)
     if not p:
         raise HTTPException(404, "pas d'image")
     return FileResponse(p, media_type="image/jpeg", headers={"Cache-Control": "no-cache"})
 
 
-@app.get("/api/sd/jobs")
-def sd_jobs():
-    return {"jobs": sd.fetcher.jobs()}
+@cam_routes.get("/api/sd/jobs")
+def sd_jobs(card: sd.SdCard = Depends(_card)):
+    return {"jobs": card.fetcher.jobs()}
 
 
-@app.post("/api/sd/clips/{clip_id}/fetch")
-def sd_fetch(clip_id: str, kind: str = Query("play")):
-    return _sd(sd.fetcher.submit, clip_id, kind)
+@cam_routes.post("/api/sd/clips/{clip_id}/fetch")
+def sd_fetch(clip_id: str, kind: str = Query("play"), card: sd.SdCard = Depends(_card)):
+    return _sd(card.fetcher.submit, clip_id, kind)
 
 
-@app.get("/api/sd/clips/{clip_id}/job")
-def sd_job(clip_id: str):
+@cam_routes.get("/api/sd/clips/{clip_id}/job")
+def sd_job(clip_id: str, card: sd.SdCard = Depends(_card)):
     _sd(sd.parse_id, clip_id)
-    job = sd.fetcher.get(clip_id)
+    job = card.fetcher.get(clip_id)
     if job is None:
-        cached = sd.local_file(clip_id) is not None
+        cached = card.local_file(clip_id) is not None
         return {"id": clip_id, "state": "done" if cached else "none", "cached": cached}
-    sd.fetcher.touch(clip_id)
-    return {**job.snapshot(), "cached": sd.local_file(clip_id) is not None}
+    card.fetcher.touch(clip_id)
+    return {**job.snapshot(), "cached": card.local_file(clip_id) is not None}
 
 
-@app.post("/api/sd/clips/{clip_id}/cancel")
-def sd_cancel(clip_id: str):
-    return {"cancelled": sd.fetcher.cancel(clip_id)}
+@cam_routes.post("/api/sd/clips/{clip_id}/cancel")
+def sd_cancel(clip_id: str, card: sd.SdCard = Depends(_card)):
+    return {"cancelled": card.fetcher.cancel(clip_id)}
 
 
-def _sd_file(clip_id: str):
-    p = _sd(sd.local_file, clip_id)
+def _sd_file(card: sd.SdCard, clip_id: str):
+    p = _sd(card.local_file, clip_id)
     if not p:
         raise HTTPException(404, "clip non téléchargé")
     return p
 
 
-@app.get("/api/sd/clips/{clip_id}/play")
-def sd_play(clip_id: str):
-    return FileResponse(_sd_file(clip_id), media_type="video/mp4")
+@cam_routes.get("/api/sd/clips/{clip_id}/play")
+def sd_play(clip_id: str, card: sd.SdCard = Depends(_card)):
+    return FileResponse(_sd_file(card, clip_id), media_type="video/mp4")
 
 
-@app.get("/api/sd/clips/{clip_id}/download")
-def sd_download(clip_id: str):
-    return FileResponse(_sd_file(clip_id), media_type="video/mp4",
-                        filename=sd.download_name(clip_id))
+@cam_routes.get("/api/sd/clips/{clip_id}/download")
+def sd_download(clip_id: str, card: sd.SdCard = Depends(_card)):
+    return FileResponse(_sd_file(card, clip_id), media_type="video/mp4",
+                        filename=card.download_name(clip_id))
 
 
-@app.get("/api/sd/clips/{clip_id}/thumb")
-def sd_thumb(clip_id: str):
-    thumb = _sd(sd.thumbnail, clip_id)
+@cam_routes.get("/api/sd/clips/{clip_id}/thumb")
+def sd_thumb(clip_id: str, card: sd.SdCard = Depends(_card)):
+    thumb = _sd(card.thumbnail, clip_id)
     if not thumb:                           # camera busy / offline: the browser retries later
         raise HTTPException(503, "vignette pas encore disponible", headers={"Retry-After": "5"})
     return FileResponse(thumb, media_type="image/jpeg",
                         headers={"Cache-Control": "max-age=3600"})
 
 
-@app.delete("/api/sd/clips/{clip_id}")
-def sd_delete_local(clip_id: str):
+@cam_routes.delete("/api/sd/clips/{clip_id}")
+def sd_delete_local(clip_id: str, card: sd.SdCard = Depends(_card)):
     """Deletes the LOCAL copy only; the SD card is never modified."""
-    if not _sd(sd.delete_local, clip_id):
+    if not _sd(card.delete_local, clip_id):
         raise HTTPException(404, "aucune copie locale")
     return {"deleted": clip_id}
 
 
-@app.get("/sdplay/{clip_id}/index.m3u8")
-def sd_hls_playlist(clip_id: str):
+@cam_routes.get("/sdplay/{clip_id}/index.m3u8")
+def sd_hls_playlist(clip_id: str, card: sd.SdCard = Depends(_card)):
     _sd(sd.parse_id, clip_id)
-    job = sd.fetcher.get(clip_id)
+    job = card.fetcher.get(clip_id)
     if job is None or not job.playlist.is_file():
         raise HTTPException(404, "flux non prêt")
-    sd.fetcher.touch(clip_id)
+    card.fetcher.touch(clip_id)
     return FileResponse(job.playlist, media_type="application/vnd.apple.mpegurl",
                         headers={"Cache-Control": "no-store"})
 
 
-@app.get("/sdplay/{clip_id}/{segment}")
-def sd_hls_segment(clip_id: str, segment: str):
+@cam_routes.get("/sdplay/{clip_id}/{segment}")
+def sd_hls_segment(clip_id: str, segment: str, card: sd.SdCard = Depends(_card)):
     _sd(sd.parse_id, clip_id)
     if not segment.endswith(".ts") or "/" in segment or ".." in segment:
         raise HTTPException(404, "segment invalide")
-    sd.fetcher.touch(clip_id)
-    seg = sd.SD_HLS / clip_id / segment
+    card.fetcher.touch(clip_id)
+    seg = card.hls_dir / clip_id / segment
     if not seg.is_file():
         raise HTTPException(404, "segment introuvable")
     return FileResponse(seg, media_type="video/mp2t")
+
+
+app.include_router(cam_routes, prefix="/cams/{cid}")
+app.include_router(cam_routes)
 
 
 # --------------------------------------------------------------------------- #
@@ -450,10 +587,12 @@ def sd_hls_segment(clip_id: str, segment: str):
 # --------------------------------------------------------------------------- #
 @app.get("/")
 def index():
-    # version the assets by modification time: a browser never keeps a stale app.js
+    # version the assets by modification time: a browser never keeps a stale script
     html = (STATIC / "index.html").read_text(encoding="utf-8")
-    for name in ("app.js", "styles.css"):
-        html = html.replace(f"/static/{name}", f"/static/{name}?v={int((STATIC / name).stat().st_mtime)}")
+    assets = [*STATIC.glob("*.js"), *STATIC.glob("*.css"), *(STATIC / "locales").glob("*.js")]
+    for p in assets:
+        name = p.relative_to(STATIC).as_posix()
+        html = html.replace(f'"/static/{name}"', f'"/static/{name}?v={int(p.stat().st_mtime)}"')
     return Response(content=html, media_type="text/html", headers={"Cache-Control": "no-cache"})
 
 

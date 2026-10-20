@@ -130,3 +130,27 @@ test('document text, title, accessibility labels and placeholders', () => {
   assert.equal(vm.runInContext('attributes.title', ctx), 'Dane logowania kamery');
   assert.equal(vm.runInContext('attributes.placeholder', ctx), 'pozostaw puste, aby zachować obecne');
 });
+
+test('every string of the interface has a translation', () => {
+  const ui = catalog('en').ui;
+  const js = fs.readFileSync(path.join(staticDir, 'app.js'), 'utf8');
+  const keys = new Set();
+  for (const m of js.matchAll(/\bt\("((?:[^"\\]|\\.)*)"\)/g)) keys.add(JSON.parse(`"${m[1]}"`));
+  for (const m of js.matchAll(/\bt`((?:[^`\\]|\\.)*)`/g)) {
+    let i = 0;
+    keys.add(m[1].replace(/\$\{[^}]*\}/g, () => `{{${i++}}}`));
+  }
+  const html = fs.readFileSync(path.join(staticDir, 'index.html'), 'utf8')
+    .replace(/<script[\s\S]*?<\/script>/g, '').replace(/<style[\s\S]*?<\/style>/g, '');
+  for (const m of html.matchAll(/>([^<>]+)</g)) {
+    const text = m[1].replace(/&nbsp;/g, ' ').trim();
+    if (text) keys.add(text);
+  }
+  for (const m of html.matchAll(/\s(?:title|aria-label|placeholder)="([^"]*)"/g)) keys.add(m[1]);
+  // names, units and numbers read the same in every language
+  const same = /^[^a-zà-ÿ]*$|^Tapo ?Web$|^\d+ h$|^cameras\.json$|^\.env$/;
+  const norm = (k) => k.trim().replace(/\s+/g, ' ');
+  const known = new Set(Object.keys(ui).map(norm));
+  const missing = [...keys].filter((k) => !same.test(k) && !(k in ui) && !known.has(norm(k)));
+  assert.deepEqual(missing, []);
+});

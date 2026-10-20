@@ -22,9 +22,60 @@ def install_client(monkeypatch, response):
     return instances, requests
 
 
-def test_default_remains_v4(monkeypatch):
+def test_explicit_protocols_and_auto_default(monkeypatch):
     monkeypatch.delenv("TAPO_CONTROL_PROTOCOL", raising=False)
-    assert type(control.create_control("camera", "unused")) is TapoV4
+    assert type(control.create_control("camera", "unused", protocol="4")) is TapoV4
+    assert type(control.create_control("camera", "unused", protocol="3")) is control.TapoV3
+    assert type(control.create_control("camera", "unused")) is control.AutoControl
+
+
+def _auto(monkeypatch, outcomes, hint=None):
+    """An AutoControl whose V4 and type 3 clients answer ``outcomes[protocol]``."""
+    logins, learnt = [], []
+
+    def fake(protocol):
+        class Fake(control._CLASSES[protocol]):
+            def multiple(self, reqs):
+                logins.append(protocol)
+                out = outcomes[protocol]
+                if isinstance(out, Exception):
+                    raise out
+                return out
+        return Fake
+
+    monkeypatch.setattr(control, "_CLASSES", {"4": fake("4"), "3": fake("3")})
+    client = control.AutoControl("camera", "unused", hint=hint, on_detect=learnt.append)
+    return client, logins, learnt
+
+
+def test_auto_switches_to_type3_when_the_camera_asks_for_it(monkeypatch):
+    client, logins, learnt = _auto(monkeypatch, {"4": TapoV4Error(-40413, "pake_register failed"),
+                                                 "3": [{"method": "x", "result": {}}]})
+    assert client.multiple([{"method": "x"}]) == [{"method": "x", "result": {}}]
+    client.multiple([{"method": "x"}])
+    assert logins == ["4", "3", "3"] and learnt == ["3"] and client.protocol == "3"
+
+
+def test_auto_tries_the_hint_first_and_switches_to_v4_on_40211(monkeypatch):
+    client, logins, learnt = _auto(monkeypatch, {"3": TapoV4Error(-40211, "type 3 failed"),
+                                                 "4": [{"method": "x"}]}, hint="3")
+    client.multiple([{"method": "x"}])
+    assert logins == ["3", "4"] and learnt == ["4"]
+
+
+@pytest.mark.parametrize("code", [-40401, -40404, None])
+def test_auto_never_makes_a_second_login_after_a_password_or_lockout_error(monkeypatch, code):
+    client, logins, learnt = _auto(monkeypatch, {"4": TapoV4Error(code, "refused"), "3": []})
+    with pytest.raises(TapoV4Error):
+        client.multiple([{"method": "x"}])
+    assert logins == ["4"] and learnt == []
+
+
+def test_type3_errors_keep_the_camera_code(monkeypatch):
+    install_client(monkeypatch, Exception('Error: MISSING_NECESSARY_PARAMS, Response: {"error_code": -40211}'))
+    with pytest.raises(TapoV4Error) as error:
+        control.TapoV3("camera", "unused").get_sd_status()
+    assert error.value.code == -40211
 
 
 def test_type3_is_lazy_and_reuses_client_and_sd_helpers(monkeypatch):
@@ -45,8 +96,8 @@ def test_type3_is_lazy_and_reuses_client_and_sd_helpers(monkeypatch):
 
 
 def test_invalid_selection_does_not_connect(monkeypatch):
-    monkeypatch.setenv("TAPO_CONTROL_PROTOCOL", "auto")
-    with pytest.raises(TapoV4Error, match="must be 3 or 4"):
+    monkeypatch.setenv("TAPO_CONTROL_PROTOCOL", "5")
+    with pytest.raises(TapoV4Error, match="must be auto, 3 or 4"):
         control.create_control("camera", "unused")
 
 
