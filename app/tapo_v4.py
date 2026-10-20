@@ -288,9 +288,12 @@ class TapoV4:
             "cipher_suites": [1],
             "passcode_type": "userpw",
         })
-        if "result" not in reg:
+        if reg.get("error_code") not in (0, None) or "result" not in reg:
             raise TapoV4Error(reg.get("error_code"), "pake_register failed")
         res = reg["result"]
+        required = {"dev_salt", "dev_random", "iterations", "dev_share"}
+        if not isinstance(res, dict) or not required <= res.keys():
+            raise TapoV4Error(None, "pake_register returned an incomplete handshake")
         dev_salt = base64.b64decode(res["dev_salt"])
         dev_random = res["dev_random"]
         iterations = int(res["iterations"])
