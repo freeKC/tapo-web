@@ -5,7 +5,7 @@ cd /d "%~dp0"
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0start.ps1"
 if errorlevel 1 (
     echo.
-    echo Nie udalo sie uruchomic Tapo Web. Sprawdz komunikat powyzej.
+    echo Could not start Tapo Web. See the message above.
     pause
     exit /b 1
 )

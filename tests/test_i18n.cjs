@@ -5,16 +5,30 @@ const path = require('node:path');
 const vm = require('node:vm');
 const staticDir = path.join(__dirname, '../app/static');
 
-function context(languages) {
-  const sandbox = vm.createContext({ navigator: { languages, language: languages[0] } });
-  for (const file of ['i18n.js', 'locales/pl.js']) {
+const locales = ['en', 'de', 'es', 'pl'];
+
+function context(languages, { search = '', stored = null } = {}) {
+  const store = new Map(stored ? [['tapo-web.lang', stored]] : []);
+  const sandbox = vm.createContext({
+    navigator: { languages, language: languages[0] },
+    location: { search, href: `http://localhost:8088/${search}`, assign(url) { sandbox.assigned = url; } },
+    localStorage: { getItem: (k) => store.get(k) ?? null, setItem: (k, v) => store.set(k, String(v)) },
+    URL, URLSearchParams,
+  });
+  sandbox.store = store;
+  for (const file of ['i18n.js', ...locales.map((l) => `locales/${l}.js`)]) {
     vm.runInContext(fs.readFileSync(path.join(staticDir, file), 'utf8'), sandbox);
   }
   return sandbox;
 }
 
+function catalog(lang) {
+  const src = fs.readFileSync(path.join(staticDir, `locales/${lang}.js`), 'utf8');
+  return JSON.parse(src.slice(src.indexOf('{'), src.lastIndexOf('}') + 1));
+}
+
 test('regional Polish and ordered browser preferences', () => {
-  const ctx = context(['en-US', 'pl-PL', 'fr-FR']);
+  const ctx = context(['ja-JP', 'pl-PL', 'fr-FR']);
   assert.equal(vm.runInContext('TapoI18n.language', ctx), 'pl');
   assert.equal(vm.runInContext('TapoI18n.locale', ctx), 'pl-PL');
   assert.equal(vm.runInContext('TapoI18n.t("Bibliothèque")', ctx), 'Biblioteka');
@@ -23,12 +37,62 @@ test('regional Polish and ordered browser preferences', () => {
     'Zapisuje nagrania w plikach po 10\u00a0min.');
 });
 
-test('French preference and unsupported-language fallback preserve source', () => {
-  for (const langs of [['fr-CA', 'pl'], ['de-DE'], []]) {
+test('French preference keeps the source text', () => {
+  const ctx = context(['fr-CA', 'pl']);
+  assert.equal(vm.runInContext('TapoI18n.language', ctx), 'fr');
+  assert.equal(vm.runInContext('TapoI18n.locale', ctx), 'fr-CA');
+  assert.equal(vm.runInContext('TapoI18n.t("Bibliothèque")', ctx), 'Bibliothèque');
+  assert.equal(vm.runInContext('TapoI18n.t`Supprimer ${"clip.mp4"} ?`', ctx), 'Supprimer clip.mp4 ?');
+});
+
+test('unsupported languages fall back to English', () => {
+  for (const langs of [['ja-JP'], ['nl-NL', 'it-IT'], []]) {
     const ctx = context(langs);
-    assert.equal(vm.runInContext('TapoI18n.language', ctx), 'fr');
-    assert.equal(vm.runInContext('TapoI18n.t("Bibliothèque")', ctx), 'Bibliothèque');
-    assert.equal(vm.runInContext('TapoI18n.t`Supprimer ${"clip.mp4"} ?`', ctx), 'Supprimer clip.mp4 ?');
+    assert.equal(vm.runInContext('TapoI18n.language', ctx), 'en');
+    assert.equal(vm.runInContext('TapoI18n.locale', ctx), 'en-GB');
+    assert.equal(vm.runInContext('TapoI18n.t("Bibliothèque")', ctx), 'Library');
+    assert.equal(vm.runInContext('TapoI18n.t`Supprimer ${"clip.mp4"} ?`', ctx), 'Delete clip.mp4?');
+  }
+});
+
+test('German and Spanish catalogs', () => {
+  const de = context(['de-AT']);
+  assert.equal(vm.runInContext('TapoI18n.locale', de), 'de-AT');
+  assert.equal(vm.runInContext('TapoI18n.t("Carte SD")', de), 'SD-Karte');
+  assert.equal(vm.runInContext('TapoI18n.label("renard")', de), 'Fuchs');
+  const es = context(['es-ES']);
+  assert.equal(vm.runInContext('TapoI18n.t`Récupération depuis la caméra… ${"0:10"} / ${"1:06"}`', es),
+    'Trayendo de la cámara… 0:10 / 1:06');
+});
+
+test('picked language wins over the browser, the URL wins over both', () => {
+  assert.equal(vm.runInContext('TapoI18n.language', context(['fr-FR'], { stored: 'de' })), 'de');
+  assert.equal(vm.runInContext('TapoI18n.language', context(['fr-FR'], { stored: 'xx' })), 'fr');
+  assert.equal(vm.runInContext('TapoI18n.language', context(['fr-FR'], { stored: 'de', search: '?lang=es' })), 'es');
+  assert.equal(vm.runInContext('TapoI18n.locale', context(['fr-FR'], { stored: 'pl' })), 'pl-PL');
+});
+
+test('choosing a language stores it and reloads', () => {
+  const ctx = context(['fr-FR'], { search: '?lang=pl' });
+  vm.runInContext('TapoI18n.choose("en")', ctx);
+  assert.equal(ctx.store.get('tapo-web.lang'), 'en');
+  assert.equal(ctx.assigned, 'http://localhost:8088/');
+  vm.runInContext('TapoI18n.choose("klingon")', ctx);
+  assert.equal(ctx.store.get('tapo-web.lang'), 'en');
+});
+
+test('every catalog covers the same strings and keeps the placeholders', () => {
+  const reference = catalog('pl');
+  const holders = (text) => new Set(text.match(/\{\{\d+\}\}/g) || []);
+  for (const lang of locales) {
+    const other = catalog(lang);
+    for (const section of ['ui', 'messages']) {
+      assert.deepEqual(Object.keys(other[section]).sort(), Object.keys(reference[section]).sort(), `${lang} ${section}`);
+      for (const [key, value] of Object.entries(other[section])) {
+        for (const h of holders(value)) assert.ok(holders(key).has(h), `${lang}: ${key}`);
+        assert.ok(!/[\u2013\u2014]/.test(value), `${lang}: dash in ${value}`);
+      }
+    }
   }
 });
 

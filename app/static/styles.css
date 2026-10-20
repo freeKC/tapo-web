@@ -41,6 +41,15 @@ body {
 .dot.online { background: var(--ok); box-shadow: 0 0 8px var(--ok); }
 .dot.offline { background: var(--danger); }
 .topbar .btn { margin-left: auto; }
+.lang-select {
+  background: var(--panel-2); color: var(--text); border: 1px solid var(--border);
+  border-radius: 8px; padding: 6px 8px; font: inherit; font-size: .9rem; cursor: pointer;
+}
+.lang-select:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+@media (max-width: 560px) {
+  .topbar { flex-wrap: wrap; gap: 10px; padding: 10px 14px; }
+  .camstatus { order: 5; flex-basis: 100%; margin-left: 0; }
+}
 
 /* Tabs */
 .tabs { display: flex; gap: 4px; padding: 10px 18px 0; background: var(--panel); border-bottom: 1px solid var(--border); }

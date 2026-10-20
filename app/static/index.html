@@ -18,6 +18,7 @@
   </div>
   <button class="btn ghost" id="btn-settings" title="Identifiants de la caméra">⚙</button>
   <button class="btn ghost" id="btn-discover" title="Relocaliser la caméra">⟳ Rafraîchir</button>
+  <select class="lang-select" id="lang-select" aria-label="Langue"></select>
 </header>
 
 <nav class="tabs">
@@ -200,8 +201,11 @@
 <div class="toast" id="toast" hidden></div>
 
 <script src="/static/i18n.js"></script>
+<script src="/static/locales/en.js"></script>
+<script src="/static/locales/de.js"></script>
+<script src="/static/locales/es.js"></script>
 <script src="/static/locales/pl.js"></script>
-<script>TapoI18n.applyDocument();</script>
+<script>TapoI18n.applyDocument(); TapoI18n.mountPicker(document.getElementById("lang-select"));</script>
 <script src="/static/app.js"></script>
 </body>
 </html>

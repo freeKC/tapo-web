@@ -35,11 +35,13 @@ continuous DVR in 10 minute chunks, and pan/tilt on motorised models.
 
 ![live tab](docs/img/live.png)
 
-The UI follows the browser's ordered language preferences. French and Polish are
-supported, with French as the fallback for other languages. Dates and numbers
-use the selected browser locale. Translations live in `app/static/locales/pl.js`;
-French source strings remain the default catalog. API keys, stored detection
-identifiers, recordings and server configuration are independent of UI language.
+The UI comes in English, French, German, Spanish and Polish. It follows the browser's
+language preferences, falls back to English, and the picker in the top bar overrides it
+(the choice is kept in the browser, `?lang=de` in the URL works too). Dates use the
+matching browser locale. The French strings in the code are the reference text and each
+language has its own file in `app/static/locales/`, so adding one means copying `en.js`
+and translating the values. API keys, stored detection identifiers, recordings and server
+configuration do not depend on the UI language.
 
 Frontend checks use only Node's built-in test runner: `node --test tests/test_i18n.cjs`.
 The Python test suite also runs these checks when Node is available.

@@ -1,14 +1,34 @@
 "use strict";
 
-// French source strings are the fallback catalog. Locale files only contain
-// translations; no server state, cookies or language query parameters are needed.
+// French source strings are the reference text. Locale files only contain
+// translations. The language comes from ?lang=xx, then the choice made in the
+// header picker (kept in localStorage), then the browser preferences, and
+// English when none of them is supported. Nothing is sent to the server.
 const TapoI18n = (() => {
-  const supported = new Set(["fr", "pl"]);
+  const names = { en: "English", fr: "Français", de: "Deutsch", es: "Español", pl: "Polski" };
+  const regions = { en: "en-GB", fr: "fr-FR", de: "de-DE", es: "es-ES", pl: "pl-PL" };
+  const storageKey = "tapo-web.lang";
+  const base = (tag) => String(tag || "").toLowerCase().split("-")[0];
+  const supported = (tag) => Object.hasOwn(names, base(tag));
   const preferences = typeof navigator === "undefined" ? [] :
-    (navigator.languages?.length ? navigator.languages : [navigator.language]);
-  const preference = preferences.find((tag) => supported.has(String(tag).toLowerCase().split("-")[0]));
-  const language = preference ? preference.toLowerCase().split("-")[0] : "fr";
-  const locale = preference || "fr-FR";
+    (navigator.languages?.length ? navigator.languages : [navigator.language]).filter(Boolean);
+
+  function chosen() {
+    try {
+      const fromUrl = new URLSearchParams(location.search).get("lang");
+      if (supported(fromUrl)) return base(fromUrl);
+    } catch (e) { /* no location outside a browser */ }
+    try {
+      const stored = localStorage.getItem(storageKey);
+      if (supported(stored)) return base(stored);
+    } catch (e) { /* storage blocked or missing */ }
+    return null;
+  }
+
+  const preference = preferences.find(supported);
+  const language = chosen() || (preference ? base(preference) : "en");
+  // Keep the browser's region for dates when it matches the language.
+  const locale = preferences.find((tag) => base(tag) === language) || regions[language];
   const catalogs = new Map();
   const catalog = () => catalogs.get(language) || { ui: {}, messages: {} };
 
@@ -51,6 +71,33 @@ const TapoI18n = (() => {
     }
   }
 
-  return { language, locale, t, label, message, applyDocument,
+  // Remember the choice and reload: the page is translated once, at startup.
+  // Without storage the choice rides along in the URL instead.
+  function choose(lang) {
+    if (!supported(lang)) return;
+    const url = new URL(location.href);
+    url.searchParams.delete("lang");
+    let stored = false;
+    try {
+      localStorage.setItem(storageKey, lang);
+      stored = localStorage.getItem(storageKey) === lang;
+    } catch (e) { /* storage blocked */ }
+    if (!stored) url.searchParams.set("lang", lang);
+    location.assign(url.href);
+  }
+
+  function mountPicker(select) {
+    if (!select) return;
+    for (const [code, name] of Object.entries(names)) {
+      const option = document.createElement("option");
+      option.value = code;
+      option.textContent = name;
+      option.selected = code === language;
+      select.append(option);
+    }
+    select.addEventListener("change", () => choose(select.value));
+  }
+
+  return { language, locale, names, t, label, message, applyDocument, mountPicker, choose,
     register: (name, translations) => catalogs.set(name, translations) };
 })();
