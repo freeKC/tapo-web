@@ -6,6 +6,8 @@ All notable changes to this project are listed here. The format is based on
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-20
+
 ### Added
 
 - Several cameras. They are kept in `cameras.json` (chmod 600), and an existing `.env` becomes
@@ -40,6 +42,9 @@ All notable changes to this project are listed here. The format is based on
 - The PTZ pad only shows on cameras that list pan and tilt (#6).
 - Tests run in temporary folders and never touch a running install (`TAPO_CONFIG_DIR`,
   `TAPO_DATA_DIR`, `TAPO_HLS_DIR`).
+- The SD card tab opens at once even with thousands of local copies: they are counted once in
+  the background instead of on every request (#8).
+- New README in English and French, with fresh screenshots (#9).
 
 ## [0.2.0] - 2026-10-20
 
@@ -97,6 +102,7 @@ First public version, tested with a Tapo C510W on firmware 1.3.4.
 - Offline tests with a fake camera and a fake media server.
 - A write-up of the detection pipeline ([docs/DETECTION.md](docs/DETECTION.md)) and a French README.
 
-[Unreleased]: https://github.com/freeKC/tapo-web/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/freeKC/tapo-web/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/freeKC/tapo-web/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/freeKC/tapo-web/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/freeKC/tapo-web/releases/tag/v0.1.0
