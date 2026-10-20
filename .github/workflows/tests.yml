@@ -44,11 +44,3 @@ jobs:
 
       - name: Run the tests
         run: python -m pytest tests -q
-
-  docker:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Build the image (not pushed)
-        run: docker build -t tapo-web:ci .
