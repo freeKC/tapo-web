@@ -1,60 +1,105 @@
 # tapo-web
 
+[![tests](https://github.com/freeKC/tapo-web/actions/workflows/tests.yml/badge.svg)](https://github.com/freeKC/tapo-web/actions/workflows/tests.yml)
+[![release](https://img.shields.io/github/v/release/freeKC/tapo-web)](https://github.com/freeKC/tapo-web/releases)
+[![license: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+![UI in English, French, German, Spanish, Polish](https://img.shields.io/badge/UI-EN%20%C2%B7%20FR%20%C2%B7%20DE%20%C2%B7%20ES%20%C2%B7%20PL-informational)
+
 [Version française](README.fr.md)
 
-A small self-hosted web app for a TP-Link Tapo camera. Live view, a browser for the videos
-sitting on the camera's SD card, and automatic animal detection so I can finally find out who
-eats the cat food at 3 am.
+**Your TP-Link Tapo cameras in a browser: live view, the videos on their SD card, and automatic
+animal detection. Everything stays on your network. No cloud, no account, no subscription.**
 
-Spoiler: it's a stone marten.
+It started because I wanted to know who empties the cat's bowl at 3 am.
+
+It's a stone marten.
 
 ![stone marten on the roof at night](docs/img/marten.jpg)
 
-Everything runs on my own machine and talks to the camera over the LAN. No cloud, no
-subscription, nothing leaves the house.
+## What you get
 
-## What it does
+- **Every camera live**, one at a time or all of them on one screen, in HD or SD, with snapshots,
+  recording on demand and a continuous DVR.
+- **The SD card as a video library.** A calendar of the days with recordings, a 24 h timeline,
+  the camera's own thumbnail for each clip. A clip starts playing after two seconds and downloads
+  at about 10x realtime, as a normal MP4 with the original H.264 (no re-encode).
+- **Animal detection** on every clip, in the background, with [DeepFaune](https://www.deepfaune.cnrs.fr).
+  Pick a species and get all its videos across all days, with a frame where the animal is boxed.
+  Clips are kept on disk, so they are still there long after the card has looped over them.
+- **Camera settings** without the Tapo app: privacy mode, status LED, spotlight, auto tracking,
+  motion and person detection with their sensitivity, night vision mode, pan and tilt with
+  saved positions. Each camera only shows what it has.
+- **A setup that finds your cameras.** It scans the network, says which model and firmware it
+  found, walks you through the two accounts the camera wants, and tests the connection.
+- **Works with recent firmware** that answers `-40211` to pytapo, python-kasa and Home Assistant.
+  This app speaks the newer login (V4, SPAKE2+) and the older one, and picks the right one by
+  itself.
+- Runs on **Linux, WSL, Windows or Docker**. The UI is in English, French, German, Spanish and
+  Polish.
 
-**Animals tab.** Every clip the camera records gets downloaded and analysed in the background.
-On the left you pick a species, on the right you get all the matching videos, across all days,
-with a preview frame where the animal is boxed. Clicking a tag starts the video right where the
-animal shows up. Videos are kept on disk for good, so they are still there long after the SD
-card has looped over them.
+## Quick start
 
-![animals tab](docs/img/animals.png)
+You need Python 3.12 and ffmpeg. Then pick one:
 
-**SD card tab.** Calendar of the days that have recordings, a 24 h timeline, one row per clip
-with the camera's own thumbnail. Play starts after a second or two while the rest of the clip is
-still coming in (the camera delivers at roughly 10x realtime). Download gives you a normal MP4,
-original H.264, no re-encode.
+**Linux or WSL** (with [uv](https://github.com/astral-sh/uv), or plain pip)
 
-![sd card tab](docs/img/sdcard.png)
+```bash
+git clone https://github.com/freeKC/tapo-web && cd tapo-web
+uv venv .venv && uv pip install --python .venv/bin/python -r requirements.txt
+./start.sh            # then open http://localhost:8088
+```
 
-**Live tab.** Live stream in the browser (HLS), HD/SD switch, snapshot, record on demand,
-continuous DVR in 10 minute chunks, and pan/tilt on motorised models.
+**Windows**
 
-![live tab](docs/img/live.png)
+```powershell
+git clone https://github.com/freeKC/tapo-web; cd tapo-web
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements-windows.txt
+.\start.bat           # starts the server and opens the browser
+```
 
-The UI comes in English, French, German, Spanish and Polish. It follows the browser's
-language preferences, falls back to English, and the picker in the top bar overrides it
-(the choice is kept in the browser, `?lang=de` in the URL works too). Dates use the
-matching browser locale. The French strings in the code are the reference text and each
-language has its own file in `app/static/locales/`, so adding one means copying `en.js`
-and translating the values. API keys, stored detection identifiers, recordings and server
-configuration do not depend on the UI language.
+**Docker**
 
-Frontend checks use only Node's built-in test runner: `node --test tests/test_i18n.cjs`.
-The Python test suite also runs these checks when Node is available.
+```bash
+git clone https://github.com/freeKC/tapo-web && cd tapo-web
+mkdir -p config data && docker compose up -d --build
+```
 
-## Why this exists
+Details, Docker Desktop included, in [docs/DOCKER.md](docs/DOCKER.md).
 
-After a firmware update my C510W (fw 1.3.4) stopped answering pytapo, python-kasa and the Home
-Assistant integration: `error_code -40211` on every login. The camera had moved to a new local
-protocol (SPAKE2+ handshake, then an AES-CCM channel) that nobody had documented. I worked it
-out and wrote it all down here: **[tapo-v4-protocol](https://github.com/freeKC/tapo-v4-protocol)**.
-This app is built on top of that.
+On the first start the settings open by themselves and look for cameras on the network. From the
+Tapo app you need three things:
+
+1. the **camera account**: in the Tapo app, the camera, then ⚙, Advanced settings, Camera
+   account. It is used for the live view, recordings and pan and tilt;
+2. your **TP-Link account password** (the one you log into the Tapo app with). The camera wants
+   it for its SD card;
+3. **Third-Party Compatibility** turned on: Me, Tapo Lab, Third-Party Compatibility. Without it
+   recent firmware refuses local logins.
+
+Everything is kept in `cameras.json` on your machine, readable by you only, and only ever sent to
+your cameras. Settings can only be changed from the machine that runs the app (or the addresses
+you list in `TAPO_ADMIN_HOSTS`).
+
+<p align="center">
+  <img src="docs/img/setup.png" width="420" alt="The settings on a first start: a welcome note, the cameras found on the network with their model, address and firmware, an Add button for each, and the TP-Link account password">
+  <img src="docs/img/settings.png" width="270" alt="The pan and tilt pad with Save this position, then the camera settings: privacy mode, status light, spotlight, auto tracking, motion and person detection with a sensitivity, night vision mode">
+</p>
+
+## The SD card
+
+A calendar of the days that have recordings, a 24 h timeline and one row per clip with the
+camera's own thumbnail. Filters by what the camera or the detection saw (animals, a species,
+people, vehicles). Play starts while the rest of the clip is still coming in. Download gives you a
+plain MP4.
+
+![SD card tab](docs/img/sdcard.png)
+
+The app never writes to or deletes anything on the card.
 
 ## Animal detection
+
+![animals tab](docs/img/animals.png)
 
 It uses [DeepFaune](https://www.deepfaune.cnrs.fr) (CNRS), a model trained on European wildlife
 camera traps: fox, marten and other mustelids, badger, hedgehog, cat, dog, roe deer, wild boar,
@@ -70,108 +115,93 @@ A few things I had to add to make it usable on a garden camera:
   sitting still on the wall is still a cat
 * species that make no sense here (the model once saw a cow on my terrace) fall back to a
   plain "animal" tag
+* a wrong tag can be removed by hand, and that stays true after a new analysis
 
-On an old GTX 1050 a one minute clip takes about 16 seconds (average over 700 clips), so a full
-day of recordings is done in under 20 minutes. The whole chain, the reasons behind each step and
-the numbers are in [docs/DETECTION.md](docs/DETECTION.md).
+On an old GTX 1050 a one minute clip takes about 16 seconds, so a full day of recordings is done
+in under 20 minutes. It also runs on CPU, just slower. Out of my first 697 clips, 418 were
+nothing at all, 180 were our dog, and 5 were the marten. That is the point of the whole thing.
 
-Out of the first 697 clips, 418 were nothing at all, 180 were our dog, and 5 were the marten.
-That is the point of the whole thing.
-
-It also runs on CPU, just slower.
-The model lives in its own process and its own virtualenv, and shuts down when there is nothing
-to do, so the web app itself stays light.
-
-## Install
-
-You need Python 3.12, ffmpeg, and [uv](https://github.com/astral-sh/uv) (or adapt the commands to pip).
-
-```bash
-git clone https://github.com/freeKC/tapo-web && cd tapo-web
-uv venv .venv && uv pip install --python .venv/bin/python -r requirements.txt
-./start.sh            # then open http://localhost:8088
-```
-
-On first start the app asks for the camera credentials in the browser (gear icon, top right):
-
-* the **camera account** you created in the Tapo app (Advanced settings, Camera account). Used for the live stream and ONVIF.
-* your **TP-Link account password**. The camera's local control API and its media port want that one. It is only ever sent to your camera.
-
-They are stored in a local `.env` file readable by you only. That file is in `.gitignore`.
-Settings can only be changed from the machine that runs the app.
-
-For the animal detection (optional, about 8 GB with PyTorch and the model weights):
+It is optional (about 8 GB with PyTorch and the model weights), and Linux only for now:
 
 ```bash
 ./ml/setup.sh
 ```
 
-Then it just runs. New clips are picked up every 10 minutes, and the whole history on the card
-gets processed little by little, newest first. Viewing always has priority over background work,
-and only one connection at a time is opened to the camera since it does not like more than that.
+The model runs in its own process and virtualenv, and stops when there is nothing to do. Viewing
+always has priority over background work. The whole chain and the numbers are in
+[docs/DETECTION.md](docs/DETECTION.md).
 
-Useful settings in `.env`: `TAPO_DATA_DIR` (put the videos on another drive),
-`TAPO_ANALYZE_KEEP` (`all`, `animals` or `none`), `TAPO_ANALYZE_AUTO=0` to analyse only on demand.
+## Which cameras?
 
-### Cameras using local protocol type 3
+Tested here with a **C510W** on firmware 1.3.4, where everything works. A contributor runs it on
+a **C520WS** (firmware 1.3.5, older login), and the C200 login quirks are handled. Other
+mains-powered Tapo cameras should work the same way: the live view and local recordings only need
+RTSP, which they all have.
 
-The default control protocol is type 4 (SPAKE2+). For cameras using type 3,
-set `TAPO_CONTROL_PROTOCOL=3` in `.env` and restart the server. This uses the
-existing pytapo dependency for control requests and keeps the same SD-card
-query and media download paths. There is no automatic protocol fallback.
+What is known so far is in [docs/CAMERAS.md](docs/CAMERAS.md). If you try it on another model,
+please [tell me how it went](https://github.com/freeKC/tapo-web/issues/new?template=camera-report.yml),
+good or bad: the settings have a "Copy the diagnostics" button that gives everything I need,
+without any address or password.
 
-Use the **TP-Link account password** for `TAPO_CLOUD_PASSWORD`, and enable
-**Third-Party Compatibility** in the Tapo app (Me > Tapo Lab, depending on app
-version). The camera account remains separate and is used for RTSP/ONVIF.
-Tapo Care is not required for local microSD recordings.
+## On a phone, a TV or a headset
 
-Type 3 was verified on a C520WS with firmware 1.3.5 Build 260522 Rel.14207n:
-SD status, recording dates, clip listings and media download. Library connection
-failures pause further attempts for 60 seconds; a reported login suspension
-uses the camera's stated wait time. Cooldowns last for the current client
-instance, so avoid restarting or changing settings to retry a suspended camera.
+My other app, **[Immuch360](https://github.com/freeKC/Immuch360)**, connects to Tapo cameras
+too. It shows them live on Android, Android TV, the Meta Quest and Windows, and lists the
+recordings of the SD card day by day on every platform. A clip plays like any other video and can
+be sent to your Immich server. Same idea: it talks to the camera on your network only, never to
+TP-Link's servers.
 
-### Native Windows
+## When something goes wrong
 
-Install Python 3.12 and FFmpeg (including ffprobe) on PATH, then run:
+* **"TP-Link account password refused"** in the connection test: check the password, and turn
+  on Third-Party Compatibility in the Tapo app. Don't try several passwords in a row: after a few
+  wrong ones the camera blocks logins for about 30 minutes.
+* **The camera is not found**: check the subnet in the settings (the first three parts of your
+  network addresses, for example 192.168.1), or type the camera's IP. Under WSL the app scans the
+  real LAN, not WSL's own network, which is why the subnet matters.
+* **"Camera busy"** when playing a clip: the camera serves one video session at a time, and the
+  Tapo app was probably open on it. Close it and try again.
+* **`-40211` with other tools**: that is the newer V4 login. How it works is written up in
+  [tapo-v4-protocol](https://github.com/freeKC/tapo-v4-protocol), and pytapo supports it since
+  3.4.20.
 
-```powershell
-python -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -r requirements-windows.txt
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\start.ps1
-```
+## Why this exists
 
-Double-click `start.bat` to start the server and open the default browser.
-The launcher reuses a running server and binds to 127.0.0.1 by default.
-Logs are in `logs/server.log` and `logs/server-error.log`. Override the bind
-address/port with `TAPO_WEB_HOST` / `TAPO_WEB_PORT` environment variables.
-Windows file access is governed by folder ACLs; Unix chmod does not provide
-owner-only credential permissions on Windows.
+After a firmware update my C510W stopped answering pytapo, python-kasa and the Home Assistant
+integration: `error_code -40211` on every login. The camera had moved to a new local protocol
+(SPAKE2+ handshake, then an AES-CCM channel) that nobody had documented. I worked it out and wrote
+it all down in **[tapo-v4-protocol](https://github.com/freeKC/tapo-v4-protocol)**. This app is
+built on top of that, and the findings went into pytapo, python-kasa and the Tapo Control
+integration for Home Assistant.
 
-SD audio uses a loopback TCP connection because Windows cannot inherit the
-extra file descriptor used on Linux. Input probing is bounded to prevent
-interleaved video/audio queues from stalling. Video remains stream-copied.
-The optional animal-detection environment still uses the Linux setup script;
-native Windows ML installation is not included here.
+Clips come off the SD card at about 10x realtime (a 66 s clip in 7 s on my Wi-Fi). Tools built on
+the older `playback` request get the same clip at 1x, so one minute of video takes one minute.
+The difference comes from the `download` request of the camera's media port.
 
-## Speed
+## Contributing
 
-Clips come off the SD card at about 10x realtime (a 66 s clip in 7 s on my Wi-Fi) and playback
-starts after 2 or 3 seconds. Tools built on the older `playback` request get the same clip at
-1x, so one minute of video takes one minute. The difference comes from using the `download`
-request of the camera's media port, see the protocol repo for the details.
+Bug reports, camera reports, translations and code are all welcome. Start with
+[CONTRIBUTING.md](CONTRIBUTING.md): how to run the tests (they need no camera), the rules for
+testing against a real one, and how to add a language. Thanks to
+[@uzior](https://github.com/uzior) for the Windows support, the older login and the Polish UI.
+
+Useful settings in `.env` (see `.env.example`): `TAPO_DATA_DIR` to put the videos on another
+drive, `TAPO_ANALYZE_KEEP` (`all`, `animals` or `none`), `TAPO_ANALYZE_AUTO=0` to analyse only on
+demand.
 
 ## Notes
 
-* Tested with a Tapo C510W, firmware 1.3.4. Other recent Tapo cameras should work the same way. Tell me if yours does or doesn't.
-* Runs fine under WSL2. If WSL goes to sleep when you close the terminal, start the app from a Windows scheduled task instead.
-* `python -m pytest tests -q` runs the offline tests (fake camera, fake media server).
-* The app never writes to or deletes anything on the SD card.
+* Runs fine under WSL2. If WSL goes to sleep when you close the terminal, start the app from a
+  Windows scheduled task instead.
+* There is no login on the web UI: anyone who can reach the port can watch the cameras.
+  `start.sh` and `start.bat` listen on 127.0.0.1 only for that reason.
+* Not affiliated with TP-Link.
 
-Keywords, for people searching: Tapo C510W, C500, C520WS, C210, C220, C225, C100, C110, C120,
-C310, C320WS, TP-Link Tapo local API, error -40211, "Invalid authentication data", encrypt_type 4,
-SPAKE2+, download Tapo SD card recordings to PC, Tapo without cloud, Tapo Home Assistant,
-pytapo alternative, wildlife camera, trail camera software, fouine, marten, fox, hedgehog, DeepFaune,
-MegaDetector, PyTorch GTX 1050.
+Keywords, for people searching: Tapo C510W, C500, C520WS, C200, C210, C220, C225, C100, C110,
+C120, C310, C320WS, TP-Link Tapo local API, error -40211, "Invalid authentication data",
+encrypt_type 4, SPAKE2+, download Tapo SD card recordings to PC, Tapo without cloud, several Tapo
+cameras in a browser, Tapo Home Assistant, pytapo alternative, wildlife camera, trail camera
+software, fouine, marten, fox, hedgehog, DeepFaune, MegaDetector, PyTorch GTX 1050, Docker.
 
-MIT license. Not affiliated with TP-Link. DeepFaune has its own license (CeCILL / CC BY-SA for the weights) and is downloaded by the setup script, not included here.
+MIT license. DeepFaune has its own license (CeCILL / CC BY-SA for the weights) and is downloaded
+by the setup script, not included here.

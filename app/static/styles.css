@@ -302,7 +302,11 @@ main { padding: 20px; max-width: 1200px; margin: 0 auto; }
 /* ---------- camera settings ---------- */
 .cam-settings { display: flex; flex-direction: column; gap: 10px; }
 .cam-setting { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-.cam-setting > span { font-size: .9rem; }
+.cam-setting > span:first-child { font-size: .9rem; flex: 1 1 auto; min-width: 7em; }
+.cam-setting > .row { flex: 0 1 auto; min-width: 0; justify-content: flex-end; }
+.cam-setting select { max-width: 11rem; }
+.cam-setting.wide { flex-direction: column; align-items: stretch; gap: 6px; }
+.cam-setting.wide select { max-width: none; }
 .cam-setting select { background: var(--panel-2); border: 1px solid var(--border); color: var(--text);
   border-radius: 7px; padding: 5px 8px; font: inherit; font-size: .85rem; }
 .cam-setting .switch { margin: 0; }
