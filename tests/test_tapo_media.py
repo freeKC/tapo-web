@@ -215,3 +215,68 @@ def test_snapshot_fetch_returns_jpeg():
     assert srv.errors == [] and got == jpeg
     dl = srv.requests[0][1]["params"]["download"]
     assert dl["media_type"] == 2 and dl["start_time"] == "1234" and "end_time" not in dl
+
+
+# ------------------------------------------------- audio kind and rate (PAT/PMT)
+def psi(pid, section):
+    return ts_packet(pid, b"\x00" + section, pusi=True)
+
+
+def pat(programs):
+    body = b"".join(n.to_bytes(2, "big") + bytes([0xE0 | (pmt >> 8), pmt & 0xFF]) for n, pmt in programs)
+    length = 5 + len(body) + 4
+    return psi(0, bytes([0x00, 0xB0 | (length >> 8), length & 0xFF, 0, 1, 0xC1, 0, 0]) + body + b"\0" * 4)
+
+
+def pmt(pid, program, streams):
+    body = b"".join(bytes([st, 0xE0 | (es >> 8), es & 0xFF, 0xF0, 0]) for st, es in streams)
+    length = 9 + len(body) + 4
+    pcr = streams[0][1]
+    head = bytes([0x02, 0xB0 | (length >> 8), length & 0xFF]) + program.to_bytes(2, "big") + bytes(
+        [0xC1, 0, 0, 0xE0 | (pcr >> 8), pcr & 0xFF, 0xF0, 0])
+    return psi(pid, head + body + b"\0" * 4)
+
+
+def two_lens_ts(seconds=2, audio_type=0x91, rate=16000):
+    """The C575D's layout: one program per lens and the audio in a program of its own."""
+    ts = pat([(1, 0x12), (2, 0x13), (3, 0x14)])
+    ts += pmt(0x12, 1, [(0x24, 0x44)]) + pmt(0x13, 2, [(audio_type, 0x54)]) + pmt(0x14, 3, [(0x24, 0x64)])
+    audio, base = b"", 90000 * 5
+    step = rate // 50                                   # 20 ms of G.711, one byte per sample
+    for i in range(seconds * 50):
+        pts = base + i * 1800
+        if i % 5 == 0:
+            ts += packets(0x44, pes(0xE0, pts, b"\x00\x00\x00\x01\x26" + bytes([i & 0xFF]) * 200))
+            ts += packets(0x64, pes(0xE0, pts, b"\x00\x00\x00\x01\x26" + bytes([i & 0xFF]) * 200))
+        chunk = bytes([0x7F ^ (i & 1)]) * step
+        audio += chunk
+        ts += packets(0x54, pes(0xC0, pts, chunk))
+    return ts, audio
+
+
+def test_audio_kind_and_rate_come_from_the_stream():
+    ts, audio = two_lens_ts()
+    v, a = bytearray(), bytearray()
+    d = ClipDemuxer(v.extend, a.extend)
+    for i in range(0, len(ts), 188 * 5 + 31):
+        d.feed(ts[i:i + 188 * 5 + 31])
+    assert (d.audio_format, d.audio_rate) == ("mulaw", 16000)
+    assert bytes(a) == audio
+    pids = {((v[i + 1] & 0x1F) << 8) | v[i + 2] for i in range(0, len(v), 188)}
+    assert pids == {0, 0x12, 0x13, 0x14, 0x44, 0x64}   # both lenses and the tables, never the audio
+
+
+def test_audio_defaults_to_the_c510w_format():
+    ts, _ = sample_ts(seconds=1)                        # no PAT/PMT, A-law at 8 kHz
+    d = ClipDemuxer(lambda b: None, lambda b: None)
+    d.feed(ts)
+    assert (d.audio_format, d.audio_rate) == ("alaw", 8000)
+    d2 = ClipDemuxer(lambda b: None, lambda b: None)
+    d2.feed(two_lens_ts(seconds=1, audio_type=0x90, rate=8000)[0])
+    assert (d2.audio_format, d2.audio_rate) == ("alaw", 8000)
+
+
+def test_unknown_audio_kind_is_not_passed_on_as_g711():
+    d = ClipDemuxer(lambda b: None, lambda b: None)
+    d.feed(two_lens_ts(seconds=1, audio_type=0x0F)[0])  # AAC: raw G.711 decoding would be noise
+    assert d.audio_format is None

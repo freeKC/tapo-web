@@ -496,7 +496,7 @@ def mp4_is_playable(path: Path) -> bool:
 
 
 class _Mux:
-    """One ffmpeg per clip: video TS on stdin + raw A-law on an extra pipe ->
+    """One ffmpeg per clip: video TS on stdin + raw G.711 on an extra pipe ->
     HLS event playlist (play while fetching) and the faststart MP4, no video
     re-encode. Data sent before start() is buffered (pre-roll)."""
 
@@ -518,7 +518,7 @@ class _Mux:
     def audio(self, b: bytes):
         self._sink["a"](b)
 
-    def start(self, has_audio: bool, audio_offset: float):
+    def start(self, has_audio: bool, audio_offset: float, audio_format: str = "alaw", audio_rate: int = 8000):
         job = self.job
         # Bound probing on both inputs. With separate video/audio queues FFmpeg
         # can otherwise wait for more video while the producer is blocked on
@@ -537,7 +537,7 @@ class _Mux:
                 audio_input = f"pipe:{a_r}"
             cmd += ["-itsoffset", f"{audio_offset:.3f}",
                     "-analyzeduration", "0", "-probesize", "32",
-                    "-f", "alaw", "-ar", "8000", "-ac", "1", "-i", audio_input]
+                    "-f", audio_format, "-ar", str(audio_rate), "-ac", "1", "-i", audio_input]
         maps = ["-map", "0:v:0"] + (["-map", "1:a:0"] if has_audio else [])
         codecs = ["-c:v", "copy"] + (["-c:a", "aac", "-ar", "16000", "-ac", "1", "-b:a", "48k"]
                                      if has_audio else [])
@@ -780,12 +780,16 @@ class Fetcher:
         demux = ClipDemuxer(mux.video, mux.audio)
 
         def start_mux():
-            mux.start(has_audio=demux.first_audio_pts is not None, audio_offset=demux.audio_offset)
+            fmt = demux.audio_format             # None: an audio kind ffmpeg can't take raw
+            mux.start(has_audio=demux.first_audio_pts is not None and fmt is not None,
+                      audio_offset=demux.audio_offset, audio_format=fmt or "alaw",
+                      audio_rate=demux.audio_rate or 8000)
             job.state = "streaming"
 
         def on_data():
+            # ffmpeg needs the audio rate up front, measured from the first two audio PES
             if not mux.started and demux.first_video_pts is not None and (
-                    demux.first_audio_pts is not None or demux.video_seconds >= 1.5):
+                    demux.audio_rate is not None or demux.video_seconds >= 1.5):
                 start_mux()
             mux.check()
             job.progress = min(demux.video_seconds, job.total)
