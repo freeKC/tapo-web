@@ -16,6 +16,11 @@ All notable changes to this project are listed here. The format is based on
 
 - On a phone the tab bar no longer makes the page wider than the screen. It scrolls sideways
   when the tabs do not fit (#10).
+- SD clips from cameras that record their sound as G.711 u-law, or at 16 kHz, have the right
+  sound. The app assumed the C510W's A-law at 8 kHz, which turned u-law into noise and made
+  16 kHz audio play at half speed. The kind now comes from the stream's tables and the rate
+  from its timestamps, which also finds the audio of two-lens models such as the C575D, where
+  it sits in a program of its own (#12).
 
 ## [0.3.0] - 2026-10-20
 

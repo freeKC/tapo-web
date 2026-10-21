@@ -27,9 +27,11 @@ Two ways to get a recording [start, end] (epoch seconds, from the control API):
     paced at 1x realtime (``scale`` > 1 is a keyframe-only fast-forward) and it
     does NOT stop at ``end`` - it rolls on into the next recordings.
 
-Either way the payload is MPEG-TS: H.264 video + G.711 A-law 8 kHz mono audio
-(TS stream_type 0x90, unknown to ffmpeg -> ``ClipDemuxer`` splits the audio PES
-out so ffmpeg can be fed video TS + raw A-law).
+Either way the payload is MPEG-TS: H.264 or H.265 video + G.711 mono audio, in
+Tapo's private stream types 0x90 (A-law) or 0x91 (u-law), at 8 or 16 kHz. ffmpeg
+knows neither type, so ``ClipDemuxer`` splits the audio PES out and ffmpeg is
+fed the video TS + the raw G.711 samples. The C510W sends A-law at 8 kHz; the
+C310 u-law; the two-lens C575D u-law at 16 kHz, in a program of its own.
 
 Wire format first documented by pytapo's media_stream; the download request,
 ack cadence and stop message come from the official app (GetDownloadRequest,
@@ -261,13 +263,22 @@ def _pes_pts(p: bytes) -> int:
     return (((p[0] >> 1) & 7) << 30) | (p[1] << 22) | ((p[2] >> 1) << 15) | (p[3] << 7) | (p[4] >> 1)
 
 
+_AUDIO_TYPES = {0x90: "alaw", 0x91: "mulaw"}     # Tapo's private G.711 stream types
+
+
+def _psi_section(payload: bytes) -> bytes:
+    """The table section starting in a PSI packet (after its pointer field)."""
+    return payload[1 + payload[0]:] if payload else b""
+
+
 class ClipDemuxer:
-    """Feeds on aligned TS packets; hands video TS and raw A-law audio to sinks.
+    """Feeds on aligned TS packets; hands video TS and raw G.711 audio to sinks.
 
     ``on_video(ts_bytes)`` receives every TS packet that is not audio (PAT/PMT/
     video), i.e. a valid TS that ffmpeg reads as video-only. ``on_audio(raw)``
-    receives the bare G.711 samples. Video PTS bookkeeping lets the caller bound
-    the clip.
+    receives the bare G.711 samples, whose kind (``audio_format``) comes from the
+    PMT and whose rate (``audio_rate``) from the audio PTS. Video PTS bookkeeping
+    lets the caller bound the clip.
 
     A/V alignment must NOT be derived from the TS timestamps: on this camera the
     audio and video PTS clocks of a recording can sit seconds apart (+2.2 s, +4.2 s
@@ -286,6 +297,55 @@ class ClipDemuxer:
         self.first_video_wall: int | None = None
         self.first_audio_wall: int | None = None
         self.audio_bytes = 0
+        self.audio_pid: int | None = None
+        self._pmt_pids: set[int] = set()
+        self._stream_type: dict[int, int] = {}          # elementary pid -> PMT stream_type
+        self._audio_first: tuple[int, int] | None = None   # (PTS, audio bytes before that PES)
+        self._audio_last: tuple[int, int] | None = None
+
+    @property
+    def audio_format(self) -> str | None:
+        """ffmpeg's name for the audio samples ("alaw" or "mulaw"), or None when
+        the PMT announces an audio type this demuxer cannot pass on raw."""
+        st = self._stream_type.get(self.audio_pid)
+        if st is None:
+            return "alaw"                    # no PMT seen: the C510W's format
+        return _AUDIO_TYPES.get(st)
+
+    @property
+    def audio_rate(self) -> int | None:
+        """8000 or 16000 (Hz), measured: G.711 is one byte per sample. None until
+        the audio PTS span 0.4 s (one PES of jitter cannot fool it), or until the
+        video says how long it has been."""
+        rate = None
+        if self._audio_first and self._audio_last:
+            (p0, b0), (p1, b1) = self._audio_first, self._audio_last
+            dt = ((p1 - p0) & 0x1FFFFFFFF) / 90000.0
+            if 0.4 <= dt < 60 and b1 > b0:
+                rate = (b1 - b0) / dt
+        if rate is None and self.audio_bytes and self.video_seconds >= 1.0:
+            rate = self.audio_bytes / self.video_seconds
+        if rate is None:
+            return None
+        return 16000 if rate > 12000 else 8000
+
+    def _read_psi(self, pid: int, payload: bytes):
+        sec = _psi_section(payload)
+        try:
+            length = ((sec[1] & 0x0F) << 8) | sec[2]
+            end = min(len(sec), 3 + length - 4)          # minus the CRC
+            if pid == 0 and sec[0] == 0x00:              # PAT: one PMT per program
+                for i in range(8, end - 3, 4):
+                    if (sec[i] << 8) | sec[i + 1]:       # program 0 is the network PID
+                        self._pmt_pids.add(((sec[i + 2] & 0x1F) << 8) | sec[i + 3])
+            elif sec[0] == 0x02:                         # PMT
+                i = 12 + (((sec[10] & 0x0F) << 8) | sec[11])
+                while i + 5 <= end:
+                    es_pid = ((sec[i + 1] & 0x1F) << 8) | sec[i + 2]
+                    self._stream_type[es_pid] = sec[i]
+                    i += 5 + (((sec[i + 3] & 0x0F) << 8) | sec[i + 4])
+        except IndexError:
+            pass                                         # a truncated table: ignore it
 
     @property
     def video_seconds(self) -> float:
@@ -316,6 +376,8 @@ class ClipDemuxer:
             afc = (pk[3] >> 4) & 3
             pay = 4 + (1 + pk[4] if afc & 2 else 0)
             payload = pk[pay:] if (afc & 1 and pay < TS_PACKET) else b""
+            if pusi and (pid == 0 or pid in self._pmt_pids):
+                self._read_psi(pid, payload)
             if pusi and payload[:3] == b"\x00\x00\x01":
                 stream_id = payload[3]
                 kind = "a" if 0xC0 <= stream_id <= 0xDF else "v" if 0xE0 <= stream_id <= 0xEF else None
@@ -328,8 +390,13 @@ class ClipDemuxer:
                         self.first_video_pts, self.first_video_wall = pts, wall_ms
                     self.last_video_pts = pts
                 elif kind == "a":
+                    self.audio_pid = pid if self.audio_pid is None else self.audio_pid
                     if has_pts and self.first_audio_pts is None:
                         self.first_audio_pts, self.first_audio_wall = _pes_pts(payload[9:14]), wall_ms
+                    if has_pts:
+                        mark = (_pes_pts(payload[9:14]), self.audio_bytes)
+                        self._audio_first = self._audio_first or mark
+                        self._audio_last = mark
                     payload = payload[9 + payload[8]:]      # strip the PES header
             if self._kind.get(pid) == "a":
                 if payload:
@@ -427,10 +494,12 @@ if __name__ == "__main__":      # smoke test: python -m app.tapo_media START END
     with MediaSession(env["TAPO_HOST"], env["TAPO_CLOUD_PASSWORD"]) as sess:
         jpg = fetch_snapshot(sess, s)
         open(prefix + ".jpg", "wb").write(jpg or b"")
-    with open(prefix + ".ts", "wb") as fv, open(prefix + ".alaw", "wb") as fa, \
+    with open(prefix + ".ts", "wb") as fv, open(prefix + ".g711", "wb") as fa, \
             MediaSession(env["TAPO_HOST"], env["TAPO_CLOUD_PASSWORD"]) as sess:
         st = ClipDemuxer(fv.write, fa.write)
         clean = stream_clip(sess, s, e, st)
         sess.stop()
-    print(f"snapshot {len(jpg or b'')} B; video {st.video_seconds:.1f}s audio {st.audio_bytes / 8000:.1f}s "
-          f"offset {st.audio_offset * 1000:.0f}ms clean_end={clean} in {time.time() - t0:.1f}s")
+    rate = st.audio_rate or 8000
+    print(f"snapshot {len(jpg or b'')} B; video {st.video_seconds:.1f}s audio {st.audio_bytes / rate:.1f}s "
+          f"({st.audio_format} {rate} Hz) offset {st.audio_offset * 1000:.0f}ms clean_end={clean} "
+          f"in {time.time() - t0:.1f}s")
