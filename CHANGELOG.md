@@ -6,6 +6,17 @@ All notable changes to this project are listed here. The format is based on
 
 ## [Unreleased]
 
+### Changed
+
+- The pan and tilt pad and the saved positions are at the top of the Live controls, next to the
+  video, and on a wide screen the video stays in view while the controls scroll. Moving the
+  camera no longer means scrolling away from the picture (#10).
+
+### Fixed
+
+- On a phone the tab bar no longer makes the page wider than the screen. It scrolls sideways
+  when the tabs do not fit (#10).
+
 ## [0.3.0] - 2026-10-20
 
 ### Added
