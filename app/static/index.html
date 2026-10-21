@@ -48,6 +48,22 @@
       </div>
 
       <aside class="controls">
+        <div class="ctl-group" id="ptz-group" hidden>
+          <label>Orientation (PTZ)</label>
+          <div class="ptzpad">
+            <button data-dir="upleft">↖</button>
+            <button data-dir="up">↑</button>
+            <button data-dir="upright">↗</button>
+            <button data-dir="left">←</button>
+            <button class="ptz-center" disabled>◉</button>
+            <button data-dir="right">→</button>
+            <button data-dir="downleft">↙</button>
+            <button data-dir="down">↓</button>
+            <button data-dir="downright">↘</button>
+          </div>
+          <div class="presets" id="ptz-presets"></div>
+        </div>
+
         <div class="ctl-group">
           <label>Flux</label>
           <div class="segmented" id="stream-seg">
@@ -86,22 +102,6 @@
             <span class="switch-label" id="cont-label">Désactivé</span>
           </label>
           <div class="hint">Archive en continu par segments de 10&nbsp;min.</div>
-        </div>
-
-        <div class="ctl-group" id="ptz-group" hidden>
-          <label>Orientation (PTZ)</label>
-          <div class="ptzpad">
-            <button data-dir="upleft">↖</button>
-            <button data-dir="up">↑</button>
-            <button data-dir="upright">↗</button>
-            <button data-dir="left">←</button>
-            <button class="ptz-center" disabled>◉</button>
-            <button data-dir="right">→</button>
-            <button data-dir="downleft">↙</button>
-            <button data-dir="down">↓</button>
-            <button data-dir="downright">↘</button>
-          </div>
-          <div class="presets" id="ptz-presets"></div>
         </div>
 
         <div class="ctl-group" id="cam-settings" hidden>

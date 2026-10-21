@@ -60,6 +60,11 @@ body {
 }
 .tab:hover { color: var(--text); background: var(--panel-2); }
 .tab.active { color: var(--text); border-bottom-color: var(--accent); }
+@media (max-width: 560px) {
+  /* the tabs scroll sideways rather than widen the page */
+  .tabs { padding: 8px 8px 0; gap: 0; overflow-x: auto; scrollbar-width: none; }
+  .tab { padding: 10px 11px; white-space: nowrap; }
+}
 
 main { padding: 20px; max-width: 1200px; margin: 0 auto; }
 .panel { display: none; }
@@ -82,6 +87,8 @@ main { padding: 20px; max-width: 1200px; margin: 0 auto; }
 /* Live layout */
 .live-grid { display: grid; grid-template-columns: 1fr 300px; gap: 20px; align-items: start; }
 @media (max-width: 860px) { .live-grid { grid-template-columns: 1fr; } }
+/* wide screens: the video stays in view while the controls next to it scroll */
+@media (min-width: 861px) { .live-grid > .videowrap { position: sticky; top: 73px; } }
 
 .videowrap {
   position: relative; background: #000; border-radius: var(--radius);
