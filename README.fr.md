@@ -41,6 +41,26 @@ C'était une fouine.
 - Tourne sous **Linux, WSL, Windows ou Docker**. L'interface existe en français, anglais,
   allemand, espagnol et polonais.
 
+## Face aux autres solutions
+
+| | tapo-web | Appli Tapo | Home Assistant + Tapo Control | Frigate |
+|---|:-:|:-:|:-:|:-:|
+| Direct dans un navigateur, toutes les caméras sur un écran | ✅ | ❌ téléphone seulement | ✅ | ✅ |
+| Carte SD par jour, avec frise et vignettes | ✅ | ✅ sur le téléphone | ➖ sans frise | ❌ |
+| Clip SD lancé en quelques secondes | ✅ | ✅ | ➖ une fois téléchargé | ❌ |
+| Clips SD gardés en MP4 sur l'ordinateur quand la carte tourne | ✅ | ➖ un par un, sur le téléphone | ➖ effacés quand la carte les efface | ❌ |
+| Espèces d'animaux : renard, fouine, blaireau, hérisson, chevreuil... | ✅ | ❌ | ❌ | ➖ quelques-unes, avec Frigate+ (payant) |
+| Réglages de la caméra (mode privé, LED, projecteur, détection, PTZ...) | ✅ | ✅ | ✅ encore plus | ➖ pan et tilt |
+| Alertes en temps réel et automatisations | ❌ | ✅ | ✅ | ✅ |
+| Enregistrement 24 h/24 sur un disque | ➖ basique | ❌ | ❌ | ✅ |
+| Accessible hors de chez soi | ❌ | ✅ | ✅ | ✅ |
+| Tourne sur | Linux, Windows, Docker | Android, iOS | Home Assistant | Docker |
+
+tapo-web est donc l'outil pour la carte SD et pour savoir quels animaux sont passés la nuit. Pour
+recevoir une notification quand quelqu'un remonte l'allée, Home Assistant ou Frigate font mieux,
+et rien n'empêche de les faire tourner à côté. Chaque case est expliquée, avec sa source, dans
+[docs/COMPARISON.md](docs/COMPARISON.md) (en anglais).
+
 ## Démarrage rapide
 
 Il faut Python 3.12 et ffmpeg. Ensuite, au choix :
@@ -138,15 +158,23 @@ chiffres sont dans [docs/DETECTION.md](docs/DETECTION.md) (en anglais).
 
 ## Quelles caméras ?
 
-Testée ici avec une **C510W** en firmware 1.3.4, où tout fonctionne. Un contributeur l'utilise
-avec une **C520WS** (firmware 1.3.5, ancienne connexion), et les particularités de connexion de la
-C200 sont gérées. Les autres caméras Tapo sur secteur devraient marcher pareil : le direct et les
-enregistrements locaux n'ont besoin que du RTSP, qu'elles ont toutes.
+| | Modèles |
+|---|---|
+| ✅ **Testées** | **C510W** (firmware 1.3.4, nouvelle connexion) : tout fonctionne. **C520WS** (1.3.5, ancienne connexion) : carte SD vérifiée par un contributeur. **C200** hw 5.0 : ses particularités de connexion sont gérées, d'après un retour. |
+| 🟢 **Devraient marcher**, intérieur | C100, C101, C110, C111, C125, C840, TC60. Motorisées : C200, C201, C202, C210, C211, C212, C21A, C220, C222, C225, C230, C232, C250, C260, C825, TC70, TC71, TC72, TCA72, TC73, TC74, TCB72 |
+| 🟢 **Devraient marcher**, extérieur | C120, C310, C320WS, C325WB, TC65, TCW30. Motorisées : C206, C207, C216, C217, C236, C245D, C246D, C500, C51A, C52A, C530WS, C545D, C550WS, C560WS, C575D, TC34, TCW34, TC40, TC41, TCA41, TC42, TC43, TC46, TC47. Projecteurs : C710, C720, TC53, TC55. Sonnette : D130 |
+| 🟡 **En partie** | Sonnettes D225, D235, TD25 (seulement câblées, en mode Always-on). C501GW, TC40GW (pan et tilt seulement en Ethernet) |
+| ❔ **Inconnu** | C103, C104, C113, C121, TCW61, C566WB, D235L, TD25L, D260 : TP-Link ne dit pas si elles ont le RTSP |
+| ❌ **Pas de direct** | Caméras sur batterie ou solaires : C400, C401, C402, C403, C410, C411, C425, C425K, C460, C465, C610, C615F, C615G, C630, C645D, C660, C665G, C675D, TC50, TCH50, TC80, TC82, TCB82, TC85, TC90, TCW90, TC90G, TC92, TC93D, et les sonnettes D205, TD20, D210, TD21, TDB21. Derrière le hub H200 : C420, C400S2, D230, TD23. La carte SD peut quand même marcher sur celles qui sont en Wi-Fi |
 
-Ce qu'on sait déjà est dans [docs/CAMERAS.md](docs/CAMERAS.md). Si vous l'essayez avec un autre
-modèle, [dites-moi comment ça s'est passé](https://github.com/freeKC/tapo-web/issues/new?template=camera-report.yml),
+« Devraient marcher » veut dire : sur secteur, avec le RTSP, une carte microSD et la même API
+locale que les modèles testés. Elles n'ont pas été essayées ici. Le détail par modèle (pan et
+tilt, éclairage, modèles à deux objectifs, firmwares avec la nouvelle connexion) est dans
+[docs/CAMERAS.md](docs/CAMERAS.md) (en anglais).
+
+Si vous l'essayez avec une caméra, [dites-moi comment ça s'est passé](https://github.com/freeKC/tapo-web/issues/new?template=camera-report.yml),
 en bien ou en mal : les réglages ont un bouton « Copier le diagnostic » qui donne tout ce qu'il me
-faut, sans aucune adresse ni mot de passe.
+faut, sans aucune adresse ni mot de passe. Chaque retour fait passer un modèle en ✅.
 
 ## Sur un téléphone, une télé ou un casque
 
@@ -165,6 +193,10 @@ parle qu'à la caméra, sur votre réseau, jamais aux serveurs de TP-Link.
 * **La caméra n'est pas trouvée** : vérifiez le sous-réseau dans les réglages (les trois premiers
   nombres de vos adresses, par exemple 192.168.1), ou indiquez l'adresse IP de la caméra. Sous WSL,
   l'appli balaie le vrai réseau local et pas celui de WSL, d'où l'importance du sous-réseau.
+* **Pas de direct, mais la carte SD fonctionne** : d'après TP-Link, une caméra ne fait tourner que
+  deux choses parmi Tapo Care, l'enregistrement local et le RTSP. Avec un abonnement Tapo Care et
+  l'enregistrement sur carte SD, la caméra coupe le RTSP. Les caméras sur batterie n'ont pas de
+  RTSP du tout.
 * **« Caméra occupée »** en lisant un clip : la caméra ne sert qu'une session vidéo à la fois, et
   l'appli Tapo était sans doute ouverte dessus. Fermez-la et réessayez.
 * **`-40211` avec d'autres outils** : c'est la nouvelle connexion V4. Son fonctionnement est décrit
@@ -184,7 +216,7 @@ Assistant.
 Les clips sortent de la carte SD à environ 10 fois le temps réel (un clip de 66 s en 7 s avec mon
 Wi-Fi). Les outils basés sur l'ancienne requête `playback` récupèrent le même clip à vitesse 1,
 donc une minute de vidéo prend une minute. La différence vient de la requête `download` du port
-média de la caméra.
+média de la caméra, que pytapo et Tapo Control pour Home Assistant utilisent aussi désormais.
 
 ## Contribuer
 

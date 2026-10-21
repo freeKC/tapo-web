@@ -37,6 +37,26 @@ It's a stone marten.
 - Runs on **Linux, WSL, Windows or Docker**. The UI is in English, French, German, Spanish and
   Polish.
 
+## How it compares
+
+| | tapo-web | Tapo app | Home Assistant + Tapo Control | Frigate |
+|---|:-:|:-:|:-:|:-:|
+| Live view in a browser, all cameras on one screen | ✅ | ❌ phone only | ✅ | ✅ |
+| SD card by day, with a timeline and thumbnails | ✅ | ✅ on the phone | ➖ no timeline | ❌ |
+| SD clip playing within seconds | ✅ | ✅ | ➖ once downloaded | ❌ |
+| SD clips kept as MP4 files on your computer after the card loops | ✅ | ➖ one at a time, to the phone | ➖ deleted when the card drops them | ❌ |
+| Animal species: fox, marten, badger, hedgehog, deer... | ✅ | ❌ | ❌ | ➖ a few, with the paid Frigate+ |
+| Camera settings (privacy, LED, spotlight, detection, PTZ...) | ✅ | ✅ | ✅ even more | ➖ pan and tilt |
+| Real-time alerts and automations | ❌ | ✅ | ✅ | ✅ |
+| 24/7 recording to a disk | ➖ basic | ❌ | ❌ | ✅ |
+| Works away from home | ❌ | ✅ | ✅ | ✅ |
+| Runs on | Linux, Windows, Docker | Android, iOS | Home Assistant | Docker |
+
+So tapo-web is the one for the SD card and for finding out which animals came by at night. For a
+notification on your phone when someone walks up the drive, Home Assistant or Frigate do it
+better, and you can run them side by side. Each cell is explained, with its source, in
+[docs/COMPARISON.md](docs/COMPARISON.md).
+
 ## Quick start
 
 You need Python 3.12 and ffmpeg. Then pick one:
@@ -133,15 +153,22 @@ always has priority over background work. The whole chain and the numbers are in
 
 ## Which cameras?
 
-Tested here with a **C510W** on firmware 1.3.4, where everything works. A contributor runs it on
-a **C520WS** (firmware 1.3.5, older login), and the C200 login quirks are handled. Other
-mains-powered Tapo cameras should work the same way: the live view and local recordings only need
-RTSP, which they all have.
+| | Models |
+|---|---|
+| ✅ **Tested** | **C510W** (firmware 1.3.4, newer login): everything works. **C520WS** (1.3.5, older login): SD card checked by a contributor. **C200** hw 5.0: its login quirks are handled, from a report. |
+| 🟢 **Should work**, indoor | C100, C101, C110, C111, C125, C840, TC60. With pan and tilt: C200, C201, C202, C210, C211, C212, C21A, C220, C222, C225, C230, C232, C250, C260, C825, TC70, TC71, TC72, TCA72, TC73, TC74, TCB72 |
+| 🟢 **Should work**, outdoor | C120, C310, C320WS, C325WB, TC65, TCW30. With pan and tilt: C206, C207, C216, C217, C236, C245D, C246D, C500, C51A, C52A, C530WS, C545D, C550WS, C560WS, C575D, TC34, TCW34, TC40, TC41, TCA41, TC42, TC43, TC46, TC47. Floodlights: C710, C720, TC53, TC55. Doorbell: D130 |
+| 🟡 **Partly** | D225, D235, TD25 doorbells (only when wired, with Always-on). C501GW, TC40GW (pan and tilt only over Ethernet) |
+| ❔ **Unknown** | C103, C104, C113, C121, TCW61, C566WB, D235L, TD25L, D260: TP-Link doesn't say whether they have RTSP |
+| ❌ **No live view** | Battery and solar cameras: C400, C401, C402, C403, C410, C411, C425, C425K, C460, C465, C610, C615F, C615G, C630, C645D, C660, C665G, C675D, TC50, TCH50, TC80, TC82, TCB82, TC85, TC90, TCW90, TC90G, TC92, TC93D, and the D205, TD20, D210, TD21, TDB21 doorbells. Behind the H200 hub: C420, C400S2, D230, TD23. The SD card may still work on the ones on Wi-Fi |
 
-What is known so far is in [docs/CAMERAS.md](docs/CAMERAS.md). If you try it on another model,
-please [tell me how it went](https://github.com/freeKC/tapo-web/issues/new?template=camera-report.yml),
+"Should work" means mains-powered, with RTSP and a microSD slot, and the same local API as the
+tested ones. They have not been tried here. The details for each model (pan and tilt, lights,
+two-lens models, firmware with the newer login) are in [docs/CAMERAS.md](docs/CAMERAS.md).
+
+If you try it on a camera, please [tell me how it went](https://github.com/freeKC/tapo-web/issues/new?template=camera-report.yml),
 good or bad: the settings have a "Copy the diagnostics" button that gives everything I need,
-without any address or password.
+without any address or password. Each report moves a model up to ✅.
 
 ## On a phone, a TV or a headset
 
@@ -159,6 +186,9 @@ TP-Link's servers.
 * **The camera is not found**: check the subnet in the settings (the first three parts of your
   network addresses, for example 192.168.1), or type the camera's IP. Under WSL the app scans the
   real LAN, not WSL's own network, which is why the subnet matters.
+* **No live view, but the SD card works**: TP-Link says a camera runs only two of Tapo Care, local
+  recording and RTSP at once. With a Tapo Care subscription and SD recording both on, the camera
+  turns RTSP off. Battery cameras have no RTSP at all.
 * **"Camera busy"** when playing a clip: the camera serves one video session at a time, and the
   Tapo app was probably open on it. Close it and try again.
 * **`-40211` with other tools**: that is the newer V4 login. How it works is written up in
@@ -176,7 +206,8 @@ integration for Home Assistant.
 
 Clips come off the SD card at about 10x realtime (a 66 s clip in 7 s on my Wi-Fi). Tools built on
 the older `playback` request get the same clip at 1x, so one minute of video takes one minute.
-The difference comes from the `download` request of the camera's media port.
+The difference comes from the `download` request of the camera's media port, which pytapo and
+Home Assistant's Tapo Control now use too.
 
 ## Contributing
 
