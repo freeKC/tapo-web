@@ -1,5 +1,11 @@
 TapoI18n.register("pl", {
   "ui": {
+    "Le serveur s'arrête.": "Serwer kończy pracę.",
+    "Arrêter le serveur ? Le direct et les téléchargements seront interrompus, les enregistrements seront finalisés. Relancez votre commande de démarrage pour revenir.": "Wyłączyć serwer? Podgląd i pobieranie zostaną zatrzymane, a nagrania domknięte. Aby wrócić, użyj ponownie polecenia uruchamiającego.",
+    "Tapo Web - arrêt du serveur": "Tapo Web - wyłączanie serwera",
+    "Le serveur s'arrête. Vous pouvez fermer cet onglet. Pour revenir, relancez votre commande de démarrage.": "Serwer kończy pracę. Możesz zamknąć tę kartę. Aby wrócić, użyj ponownie polecenia uruchamiającego.",
+    "Arrêter le serveur local": "Wyłącz lokalny serwer",
+    "⏻ Arrêter le serveur": "⏻ Wyłącz serwer",
     "o": "B",
     "Ko": "KB",
     "Mo": "MB",
@@ -232,6 +238,9 @@ TapoI18n.register("pl", {
     "Oublier la position {{0}} ?": "Zapomnieć pozycję {{0}}?"
   },
   "messages": {
+    "Arrêt disponible uniquement depuis cette machine.": "Wyłączenie jest dostępne tylko z tego komputera.",
+    "Démarrez avec python -m app.server pour activer cette fonction.": "Uruchom przez python -m app.server, aby włączyć tę funkcję.",
+
     "chat": "kot",
     "renard": "lis",
     "fouine / mustélidé": "kuna / łasicowate",

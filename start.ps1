@@ -12,7 +12,7 @@ try {
     if ($health -eq 'ok') { Write-Host "Already running: http://localhost:$port"; exit 0 }
 } catch {}
 New-Item -ItemType Directory -Force -Path (Join-Path $PSScriptRoot 'logs') | Out-Null
-$serverProcess = Start-Process -FilePath $pythonPath -ArgumentList @('-m', 'uvicorn', 'app.main:app', '--host', $bindAddress, '--port', "$port") -WorkingDirectory $PSScriptRoot -WindowStyle Hidden -RedirectStandardOutput (Join-Path $PSScriptRoot 'logs\server.log') -RedirectStandardError (Join-Path $PSScriptRoot 'logs\server-error.log') -PassThru
+$serverProcess = Start-Process -FilePath $pythonPath -ArgumentList @('-m', 'app.server', '--host', $bindAddress, '--port', "$port") -WorkingDirectory $PSScriptRoot -WindowStyle Hidden -RedirectStandardOutput (Join-Path $PSScriptRoot 'logs\server.log') -RedirectStandardError (Join-Path $PSScriptRoot 'logs\server-error.log') -PassThru
 for ($attempt = 0; $attempt -lt 60; $attempt++) {
     Start-Sleep -Milliseconds 500
     if ($serverProcess.HasExited) { throw 'Server exited. See logs/server-error.log.' }

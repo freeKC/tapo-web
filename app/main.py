@@ -85,6 +85,21 @@ def _is_local(request: Request) -> bool:
     return bool(request.client) and request.client.host in _ADMINS
 
 
+def _shutdown_local(request: Request) -> bool:
+    return bool(request.client) and request.client.host in ("127.0.0.1", "::1", "localhost")
+
+
+@app.post("/api/server/shutdown")
+async def shutdown_server(request: Request):
+    if not _shutdown_local(request) or request.headers.get("x-tapo-action") != "shutdown":
+        raise HTTPException(403, "Arrêt disponible uniquement depuis cette machine.")
+    callback = getattr(app.state, "request_shutdown", None)
+    if not callable(callback):
+        raise HTTPException(503, "Démarrez avec python -m app.server pour activer cette fonction.")
+    callback()
+    return {"stopping": True}
+
+
 def _can_edit(request: Request) -> bool:
     """Only from this machine (or while nothing is configured yet): a LAN visitor
     must not be able to re-point the app or overwrite the stored credentials."""
@@ -109,7 +124,7 @@ async def _body(request: Request) -> dict:
 def _overview(request: Request) -> dict:
     reg = registry()
     return {"cameras": [c.public() for c in reg.list()], "needs_setup": reg.needs_setup(),
-            "can_edit": _can_edit(request), "subnet": reg.subnet or config.DEFAULT_SUBNET,
+            "can_edit": _can_edit(request), "can_shutdown": _shutdown_local(request) and callable(getattr(app.state, "request_shutdown", None)), "subnet": reg.subnet or config.DEFAULT_SUBNET,
             "has_cloud_password": bool(reg.cloud_password)}
 
 
