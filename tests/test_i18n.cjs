@@ -27,6 +27,23 @@ function catalog(lang) {
   return JSON.parse(src.slice(src.indexOf('{'), src.lastIndexOf('}') + 1));
 }
 
+test('download speed uses the selected locale and reports idle only during transfer', () => {
+  const source = fs.readFileSync(path.join(staticDir, 'app.js'), 'utf8');
+  const duration = source.slice(source.indexOf('function fmtDur('), source.indexOf('// ---------- tabs'));
+  const status = source.slice(source.indexOf('function jobText('), source.indexOf('function refreshClip('));
+  for (const [language, speed, idle] of [
+    ['pl', '1,25 MB/s', 'Brak nowych danych od 6 s'],
+    ['en', '1.25 MB/s', 'No new data for 6 s'],
+  ]) {
+    const ctx = context([language]);
+    vm.runInContext('const t = TapoI18n.t;\n' + duration + '\n' + status, ctx);
+    const text = vm.runInContext('jobText({state:"streaming",progress:5,total:60,bytes_per_second:1250000,idle_seconds:6})', ctx);
+    assert.ok(text.includes(speed), text);
+    assert.ok(text.includes(idle), text);
+    assert.ok(!vm.runInContext('jobText({state:"finalizing",idle_seconds:6})', ctx).includes('MB/s'));
+  }
+});
+
 test('regional Polish and ordered browser preferences', () => {
   const ctx = context(['ja-JP', 'pl-PL', 'fr-FR']);
   assert.equal(vm.runInContext('TapoI18n.language', ctx), 'pl');

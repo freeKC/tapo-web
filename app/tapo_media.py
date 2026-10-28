@@ -456,7 +456,8 @@ def fetch_snapshot(sess: MediaSession, start: int) -> bytes | None:
 
 def stream_clip(sess: MediaSession, start: int, end: int, demux: ClipDemuxer, *,
                 should_stop: Callable[[], bool] = lambda: False,
-                on_data: Callable[[], None] | None = None, overrun: float = 5.0) -> bool:
+                on_data: Callable[[], None] | None = None, overrun: float = 5.0,
+                on_bytes: Callable[[int], None] | None = None) -> bool:
     """Pull the recording [start, end] through ``demux``. True = the camera
     signalled a clean end of clip; False = stopped by the caller/overrun guard."""
     limit = float(end - start) + overrun     # safety net: never roll into later recordings
@@ -465,6 +466,8 @@ def stream_clip(sess: MediaSession, start: int, end: int, demux: ClipDemuxer, *,
         if should_stop():
             return False
         if mimetype == "video/mp2t":
+            if on_bytes:
+                on_bytes(len(data))
             wall = _hdr.get("x-data-pts", "")
             demux.feed(data, int(wall) if wall.isdigit() else None)
             if on_data:

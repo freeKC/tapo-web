@@ -229,7 +229,9 @@ TapoI18n.register("pl", {
     "+ Mémoriser la position": "+ Zapamiętaj pozycję",
     "Nom de cette position :": "Nazwa tej pozycji:",
     "Position mémorisée": "Pozycja zapamiętana",
-    "Oublier la position {{0}} ?": "Usunąć zapisaną pozycję {{0}}?"
+    "Oublier la position {{0}} ?": "Usunąć zapisaną pozycję {{0}}?",
+    "Mo/s": "MB/s",
+    "Aucune donnée reçue depuis {{0}} s": "Brak nowych danych od {{0}} s"
   },
   "messages": {
     "chat": "kot",
