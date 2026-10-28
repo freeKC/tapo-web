@@ -17,6 +17,7 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, PlainTextResponse, Response
 from fastapi.staticfiles import StaticFiles
+from starlette.concurrency import run_in_threadpool
 
 from . import animals, camera, checks, config, discovery, features, library, sd
 from .cameras import Camera, CameraError, registry
@@ -441,9 +442,11 @@ async def camera_settings_set(request: Request, cam: Camera = Depends(current_ca
     if not isinstance(body, dict) or not body:
         raise HTTPException(400, "requête invalide")
     card = sd.card_for(cam)
-    for key, value in body.items():
-        _feature(features.write, card, key, value)
-    return _feature(features.read, card, True)
+    def apply_settings():
+        for key, value in body.items():
+            _feature(features.write, card, key, value)
+        return _feature(features.read, card, True)
+    return await run_in_threadpool(apply_settings)
 
 
 @cam_routes.post("/api/presets")
@@ -455,8 +458,8 @@ async def preset_save(request: Request, cam: Camera = Depends(current_camera)):
     if not isinstance(body, dict) or not isinstance(body.get("name"), str):
         raise HTTPException(400, "requête invalide")
     card = sd.card_for(cam)
-    _feature(features.save_preset, card, body["name"])
-    return _feature(features.read, card, True)
+    await run_in_threadpool(_feature, features.save_preset, card, body["name"])
+    return await run_in_threadpool(_feature, features.read, card, True)
 
 
 @cam_routes.post("/api/presets/{preset_id}/goto")
