@@ -210,7 +210,7 @@ async def discovery_scan(request: Request):
     subnet = str(values.get("subnet") or registry().subnet or config.DEFAULT_SUBNET).strip().rstrip(".")
     if not re.fullmatch(r"\d{1,3}\.\d{1,3}\.\d{1,3}", subnet):
         raise HTTPException(400, "Sous-réseau invalide (attendu : 192.168.1).")
-    found = discovery.scan(subnet)
+    found = await run_in_threadpool(discovery.scan, subnet)   # seconds of probing: not on the loop
     cams = registry().list()
     for dev in found:
         dev["camera"] = next((c.id for c in cams if (dev.get("mac") and dev["mac"] == c.cfg.mac)
