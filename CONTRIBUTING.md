@@ -27,6 +27,18 @@ double-click `start.bat`. Logs are in `logs/server.log` and `logs/server-error.l
 
 **Docker**: see [docs/DOCKER.md](docs/DOCKER.md).
 
+## Stopping a local server
+
+Closing the browser leaves the server running. With `start.bat`, the local browser shows a
+**Stop server** button. It asks for confirmation, then lets Uvicorn shut down normally so the
+app's cleanup stops its ffmpeg processes. Live view and downloads are interrupted.
+
+On Linux or WSL, the same launcher is available with
+`.venv/bin/python -m app.server --host 127.0.0.1 --port 8088`.
+The button is hidden when using plain Uvicorn, including the existing Docker entrypoint.
+Only a loopback client can request shutdown; `TAPO_ADMIN_HOSTS` does not grant this permission.
+Restart using the same command or launcher as before.
+
 ## Tests
 
 ```bash

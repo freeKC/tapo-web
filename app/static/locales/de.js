@@ -1,5 +1,11 @@
 TapoI18n.register("de", {
   "ui": {
+    "Le serveur s'arrête.": "Der Server wird beendet.",
+    "Arrêter le serveur ? Le direct et les téléchargements seront interrompus, les enregistrements seront finalisés. Relancez votre commande de démarrage pour revenir.": "Server beenden? Livebild und Downloads werden gestoppt, Aufnahmen abgeschlossen. Zum Neustart den Startbefehl erneut ausführen.",
+    "Tapo Web - arrêt du serveur": "Tapo Web - Server wird beendet",
+    "Le serveur s'arrête. Vous pouvez fermer cet onglet. Pour revenir, relancez votre commande de démarrage.": "Der Server wird beendet. Sie können diesen Tab schließen. Zum Neustart den Startbefehl erneut ausführen.",
+    "Arrêter le serveur local": "Lokalen Server beenden",
+    "⏻ Arrêter le serveur": "⏻ Server beenden",
     "o": "B",
     "Ko": "KB",
     "Mo": "MB",
@@ -234,6 +240,9 @@ TapoI18n.register("de", {
     "Aucune donnée reçue depuis {{0}} s": "Seit {{0}} s keine neuen Daten"
   },
   "messages": {
+    "Arrêt disponible uniquement depuis cette machine.": "Das Beenden ist nur von diesem Computer aus verfügbar.",
+    "Démarrez avec python -m app.server pour activer cette fonction.": "Mit python -m app.server starten, um diese Funktion zu aktivieren.",
+
     "chat": "Katze",
     "renard": "Fuchs",
     "fouine / mustélidé": "Marder / Marderartige",

@@ -1,5 +1,11 @@
 TapoI18n.register("es", {
   "ui": {
+    "Le serveur s'arrête.": "El servidor se está deteniendo.",
+    "Arrêter le serveur ? Le direct et les téléchargements seront interrompus, les enregistrements seront finalisés. Relancez votre commande de démarrage pour revenir.": "¿Detener el servidor? Se detendrán el vídeo en directo y las descargas, y se finalizarán las grabaciones. Use su comando de inicio para volver.",
+    "Tapo Web - arrêt du serveur": "Tapo Web - deteniendo servidor",
+    "Le serveur s'arrête. Vous pouvez fermer cet onglet. Pour revenir, relancez votre commande de démarrage.": "El servidor se está deteniendo. Puede cerrar esta pestaña. Use su comando de inicio para volver.",
+    "Arrêter le serveur local": "Detener el servidor local",
+    "⏻ Arrêter le serveur": "⏻ Detener servidor",
     "o": "B",
     "Ko": "KB",
     "Mo": "MB",
@@ -234,6 +240,9 @@ TapoI18n.register("es", {
     "Aucune donnée reçue depuis {{0}} s": "Sin datos nuevos desde hace {{0}} s"
   },
   "messages": {
+    "Arrêt disponible uniquement depuis cette machine.": "El apagado solo está disponible desde este equipo.",
+    "Démarrez avec python -m app.server pour activer cette fonction.": "Inicie con python -m app.server para activar esta función.",
+
     "chat": "gato",
     "renard": "zorro",
     "fouine / mustélidé": "garduña / mustélido",
