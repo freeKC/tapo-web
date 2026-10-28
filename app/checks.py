@@ -81,7 +81,8 @@ def run(cam: Camera) -> dict:
     if cam.cloud_password:
         card.reset()
         try:
-            disk = card.call(lambda c: c.get_sd_status())
+            # through the SD cache, so the report copied right after the test has the card
+            disk = card.cached("card", 30.0, lambda: card.call(lambda c: c.get_sd_status()), force=True)
             ok, detail = True, f"connecté, carte SD : {disk.get('status')}" if disk else "connecté, pas de carte SD"
         except sd.SdError as e:
             ok, detail = False, ("mot de passe du compte TP-Link refusé" if e.code in REFUSED else str(e))
