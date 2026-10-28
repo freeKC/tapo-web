@@ -12,7 +12,9 @@ def main():
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8088)
     args = parser.parse_args()
-    server = uvicorn.Server(uvicorn.Config(app, host=args.host, port=args.port, proxy_headers=False))
+    # without a timeout, a video still playing in another tab holds the shutdown forever
+    server = uvicorn.Server(uvicorn.Config(app, host=args.host, port=args.port, proxy_headers=False,
+                                           timeout_graceful_shutdown=5))
 
     async def serve():
         loop = asyncio.get_running_loop()

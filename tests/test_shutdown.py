@@ -55,6 +55,7 @@ def test_launcher_requests_graceful_exit(monkeypatch):
 
         def __init__(self, config):
             assert config.proxy_headers is False
+            assert config.timeout_graceful_shutdown == 5
 
         async def serve(self):
             launcher.app.state.request_shutdown()
