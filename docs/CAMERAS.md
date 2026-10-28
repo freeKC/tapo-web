@@ -24,10 +24,19 @@ The protocol notes are in [freeKC/tapo-v4-protocol](https://github.com/freeKC/ta
 | Model | Firmware | Control protocol | Live | SD card | PTZ | Animals | Notes | Source |
 |---|---|---|---|---|---|---|---|---|
 | C510W (hw 2.0) | 1.3.4 Build 260523 | V4 | ✅ | ✅ | ✅ | ✅ | Everything in the app works, camera settings included. | Tested by the maintainer |
-| C520WS | 1.3.5 Build 260522 Rel.14207n | Type 3 | ❔ | ✅ | ❔ | ❔ | SD status, recording dates, clip listing and download verified with `TAPO_CONTROL_PROTOCOL=3`. The camera answers `-40413` to the V4 login, which is what makes "auto" switch to type 3. Needs Third-Party Compatibility turned on in the Tapo app. | @uzior, #1 #2 |
+| C520WS (hw 1.0) | 1.3.5 Build 260522 Rel.14207n | Type 3 (auto) | ✅ | ✅ | ✅ | ❔ | Live view, SD card and ONVIF movement verified. Auto selects and remembers type 3. Needs Third-Party Compatibility turned on in the Tapo app. See the settings caveat below. | @uzior, [#16](https://github.com/freeKC/tapo-web/issues/16), #1 #2 |
 | C200 (hw 5.0) | 1.4.6 | V4 with `extra_crypt` | ❔ | ❔ | ❔ | ❔ | Support added in 0.2.0 from a report: `extra_crypt` (SHA-256-crypt) and sha256 passcode in the V4 login, month by month day search. | Reported, not tested here |
 
 "SD card" covers the status, the list of recordings, playback and download.
+
+### C520WS validation notes
+
+The [hardware 1.0 report](https://github.com/freeKC/tapo-web/issues/16) also confirms LED and
+spotlight changes and PTZ preset save, return and removal, tested with the thread-pool fix in
+[#13](https://github.com/freeKC/tapo-web/pull/13). Settings writes and preset saving are not
+confirmed to work on main without that fix. Privacy, tracking, detection and night-mode settings
+were read only; changing them was not tested. Snapshots and animal detection were not separately
+tested.
 
 ## Every Tapo camera
 
@@ -98,7 +107,7 @@ switch. "PT" means pan and tilt, "light" a spotlight or floodlight.
 | C500 | pan/tilt | ✓ | | 🟢 | |
 | C510W | pan/tilt | ✓ | ✓ | ✅ | Tested, see above |
 | C51A | pan/tilt | ✓ | ✓ | 🟢 | `-40211` reported on 1.3.4 |
-| C520WS | pan/tilt, Ethernet | ✓ | ✓ | ✅ | SD card tested, see above |
+| C520WS | pan/tilt, Ethernet | ✓ | ✓ | ✅ | Live view, SD card and ONVIF movement tested, see above |
 | C52A, C530WS, C550WS, C560WS | pan/tilt, Ethernet | ✓ | ✓ | 🟢 | |
 | C545D, C575D, TC47 | pan/tilt, two lenses | ✓ | | 🟢 | The wide lens only |
 | TC40 | pan/tilt | ✓ | | 🟢 | |
