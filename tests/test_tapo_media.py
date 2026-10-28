@@ -181,11 +181,13 @@ def test_download_flow_auth_decrypt_acks_and_finish():
     v, a = bytearray(), bytearray()
     demux = ClipDemuxer(v.extend, a.extend)
     with MediaSession("127.0.0.1", PASSWORD, port=srv.port, timeout=5) as sess:
-        clean = stream_clip(sess, 1000, 1003, demux)
+        received = []
+        clean = stream_clip(sess, 1000, 1003, demux, on_bytes=received.append)
         sess.stop()
     srv.join(5)
     assert srv.errors == []
     assert clean is True and bytes(a) == audio
+    assert received == [len(chunk) for chunk in chunks]
     hdr, req = srv.requests[0]
     assert hdr["x-data-window-size"] == "50"
     dl = req["params"]["download"]

@@ -546,10 +546,15 @@ function retryThumb(img, id) {
 }
 
 function jobText(job) {
+  const speed = ((job.bytes_per_second || 0) / 1000000).toLocaleString(TapoI18n.locale, {
+    minimumFractionDigits: 2, maximumFractionDigits: 2,
+  }) + " " + t("Mo/s");
+  const idle = job.idle_seconds >= 3
+    ? " · " + t`Aucune donnée reçue depuis ${Math.floor(job.idle_seconds)} s` : "";
   switch (job.state) {
     case "queued": return t("En file d'attente…");
     case "connecting": return t("Connexion à la caméra…");
-    case "streaming": return t`Récupération depuis la caméra… ${fmtDur(job.progress)} / ${fmtDur(job.total)}`;
+    case "streaming": return t`Récupération depuis la caméra… ${fmtDur(job.progress)} / ${fmtDur(job.total)}` + " · " + speed + idle;
     case "finalizing": return t("Finalisation du MP4…");
     default: return "";
   }
@@ -848,7 +853,7 @@ function setSdModalState(c, job) {
   if (busy) {
     $("#modal-fetch-fill").style.width = (job.total ? Math.min(100, 100 * job.progress / job.total) : 0) + "%";
     $("#modal-fetch-text").textContent = sd.player && sd.player.noHls
-      ? t("Lecture dès la fin de la récupération… ") + fmtDur(job.progress) + " / " + fmtDur(job.total) : jobText(job);
+      ? t("Lecture dès la fin de la récupération… ") + jobText(job) : jobText(job);
   }
 }
 
