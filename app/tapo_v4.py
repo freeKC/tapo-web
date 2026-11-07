@@ -501,7 +501,10 @@ class TapoV4:
             pb = r["playback"]
             batch = self._unwrap(pb.get("search_video_results"))
             clips += batch
-            if not batch or not pb.get("to_be_continued"):
+            # Some type-3 firmware omits the continuation flag even when more
+            # clips exist. A full page then requires another indexed request.
+            more = pb.get("to_be_continued")
+            if not batch or (not more and ("to_be_continued" in pb or len(batch) < page)):
                 return clips
             start += page
 
