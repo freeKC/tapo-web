@@ -150,6 +150,25 @@ def test_listing_helpers_unwrap_and_paginate(monkeypatch):
     assert calls == [(0, 2), (3, 5)] and len(clips) == 4 and clips[0]["startTime"] == 0
 
 
+@pytest.mark.parametrize("total", [137, 200, 237])
+def test_listing_without_continuation_flag_reads_all_pages(monkeypatch, total):
+    c = TapoV4("camera.invalid", "pw")
+    calls = []
+
+    def fake_request(method, params=None):
+        q = params["playback"]["search_video_with_utc"]
+        calls.append((q["start_index"], q["end_index"]))
+        return {"playback": {"search_video_results": [
+            {f"search_video_results_{i}": {"startTime": i, "endTime": i + 1, "video_type": "2"}}
+            for i in range(q["start_index"], min(total, q["end_index"] + 1))
+        ]}}
+
+    monkeypatch.setattr(c, "request", fake_request)
+    clips = c.search_videos_utc(0, 1000, "PLAYER")
+    assert [clip["startTime"] for clip in clips] == list(range(total))
+    assert calls == [(i, i + 99) for i in range(0, total + 1, 100)]
+
+
 def test_sha256_crypt_matches_the_glibc_reference_vectors():
     assert sha256_crypt("Hello world!", "$5$saltstring") == "$5$saltstring$5B8vYYiY.CVt1RlTTf8KbXBH3hsxY/GNooZaBBGWEc5"
     assert sha256_crypt("Hello world!", "$5$rounds=10000$saltstringsaltstring") == \
